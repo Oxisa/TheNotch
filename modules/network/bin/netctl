@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""Network backend for TheNotch (NetworkManager through nmcli).
+
+  status                     devices, the active connection, Wi-Fi radio, tunnels
+  wifi [rescan]              visible Wi-Fi networks (strongest first)
+  radio on|off               Wi-Fi radio
+  connect SSID [PASSWORD]    join a network (a saved one needs no password)
+  disconnect DEVICE | up NAME
+  forget NAME                delete a saved connection
+  saved                      saved connections
+  details DEVICE             addresses, gateway, DNS, MAC, speed
+  dns NAME auto|SERVERS      DNS servers for a connection (comma-separated), then reconnect
+  qr NAME                    a PNG with the Wi-Fi QR code of a saved network
+  ping                       latency: a real request (through any tunnel), and the router
+
+Every command prints one JSON object. Tunnels (tun/wireguard/tailscale) are
+only reported, never switched — they belong to the apps that run them.
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+RUN = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp") / "thenotch-net"
+
+
+def nm(*args, timeout=15):
+    r = subprocess.run(["nmcli", "-t", *args], capture_output=True, text=True, timeout=timeout)
+    return r.returncode, r.stdout, r.stderr.strip()
+
+
+def split(line):
+    """nmcli -t escapes ':' and '\\' with a backslash."""
+    out, cur, esc = [], "", False
+    for ch in line:
+        if esc:
+            cur += ch; esc = False
+        elif ch == "\\":
+            esc = True
+        elif ch == ":":
+            out.append(cur); cur = ""
+        else:
+            cur += ch
+    out.append(cur)
+    return out
+
+
+def out(obj):
+    print(json.dumps(obj, ensure_ascii=False))
+    return 0 if obj.get("ok", True) else 1
+
+
+def fail(msg):
+    return out({"ok": False, "error": msg})
+
+
+def devices():
+    _, o, _ = nm("-f", "DEVICE,TYPE,STATE,CONNECTION", "device")
+    res = []
+    for line in o.splitlines():
+        d, t, st, con = (split(line) + ["", "", "", ""])[:4]
+        if t in ("loopback", "bridge") or d.startswith(("virbr", "docker", "veth")):
+            continue
+        res.append({"device": d, "type": t, "state": st, "connection": con})
+    return res
+
+
+def tunnels():
+    res = []
+    for d in devices():
+        if d["type"] in ("tun", "wireguard") or d["device"].startswith(("tun", "wg", "tailscale")):
+            up = d["state"].startswith("connected")
+            name = d["connection"] or d["device"]
+            if d["device"].startswith("tailscale"):
+                name = "Tailscale"
+            elif d["device"].startswith("tun") and subprocess.run(["pgrep", "-x", "happd"], capture_output=True).returncode == 0:
+                name = "Happ"
+            res.append({"device": d["device"], "name": name, "up": up})
+    return res
+
+
+def details(dev):
+    _, o, _ = nm("device", "show", dev)
+    info = {"device": dev, "ip4": [], "ip6": [], "dns": []}
+    for line in o.splitlines():
+        k, _, v = line.partition(":")
+        if k == "GENERAL.HWADDR": info["mac"] = v
+        elif k == "GENERAL.TYPE": info["type"] = v
+        elif k == "GENERAL.CONNECTION": info["connection"] = v
+        elif k == "GENERAL.MTU": info["mtu"] = v
+        elif k.startswith("IP4.ADDRESS"): info["ip4"].append(v)
+        elif k.startswith("IP6.ADDRESS") and not v.startswith("fe80"): info["ip6"].append(v)
+        elif k == "IP4.GATEWAY": info["gateway"] = v
+        elif k.startswith("IP4.DNS") or k.startswith("IP6.DNS"): info["dns"].append(v)
+    try:
+        info["speed"] = int(Path(f"/sys/class/net/{dev}/speed").read_text().strip())
+    except (OSError, ValueError):
+        pass
+    if info.get("type") == "wifi":
+        _, w, _ = nm("-f", "IN-USE,SSID,SIGNAL,FREQ,RATE,SECURITY", "device", "wifi", "list", "ifname", dev, "--rescan", "no")
+        for line in w.splitlines():
+            f = split(line)
+            if f[0] == "*":
+                info.update({"ssid": f[1], "signal": int(f[2] or 0), "freq": f[3], "rate": f[4], "security": f[5]})
+    if info.get("connection"):
+        _, c, _ = nm("-f", "ipv4.method,ipv4.dns,ipv4.ignore-auto-dns", "connection", "show", info["connection"])
+        for line in c.splitlines():
+            k, _, v = line.partition(":")
+            if k == "ipv4.dns": info["dnsCustom"] = [x for x in v.split(",") if x]
+            if k == "ipv4.ignore-auto-dns": info["dnsManual"] = v == "yes"
+            if k == "ipv4.method": info["method"] = v
+    return info
+
+
+def primary():
+    """The device that carries the internet: wired before Wi-Fi, connected only."""
+    devs = [d for d in devices() if d["state"].startswith("connected") and d["type"] in ("ethernet", "wifi")]
+    devs.sort(key=lambda d: 0 if d["type"] == "ethernet" else 1)
+    return devs[0] if devs else None
+
+
+def status():
+    _, r, _ = nm("radio", "wifi")
+    p = primary()
+    st = {"ok": True, "wifiRadio": r.strip() == "enabled", "devices": devices(), "tunnels": tunnels(),
+          "hasWifi": any(d["type"] == "wifi" for d in devices()), "primary": details(p["device"]) if p else None}
+    try:
+        st["blocked"] = "Soft blocked: yes" in subprocess.run(["rfkill", "list", "wlan"], capture_output=True, text=True).stdout
+    except OSError:
+        pass
+    return out(st)
+
+
+def wifi(rescan):
+    _, o, err = nm("-f", "IN-USE,SSID,SIGNAL,SECURITY,FREQ", "device", "wifi", "list", "--rescan", "yes" if rescan else "auto", timeout=25)
+    saved = {split(l)[0] for l in nm("-f", "NAME,TYPE", "connection", "show")[1].splitlines() if split(l)[1:2] == ["802-11-wireless"]}
+    best = {}
+    for line in o.splitlines():
+        f = (split(line) + [""] * 5)[:5]
+        ssid = f[1]
+        if not ssid:
+            continue
+        n = {"ssid": ssid, "active": f[0] == "*", "signal": int(f[2] or 0), "secure": f[3] not in ("", "--"),
+             "security": f[3], "band": "5" if f[4].startswith("5") else "6" if f[4].startswith("6") else "2.4", "saved": ssid in saved}
+        if ssid not in best or n["active"] or n["signal"] > best[ssid]["signal"] and not best[ssid]["active"]:
+            best[ssid] = n
+    nets = sorted(best.values(), key=lambda n: (not n["active"], -n["signal"]))
+    return out({"ok": True, "networks": nets[:40], "error": err if not nets and err else ""})
+
+
+def connect(ssid, password):
+    if password:
+        code, o, err = nm("device", "wifi", "connect", ssid, "password", password, timeout=45)
+    else:
+        code, o, err = nm("connection", "up", "id", ssid, timeout=45)
+        if code != 0:
+            code, o, err = nm("device", "wifi", "connect", ssid, timeout=45)
+    if code != 0:
+        # a failed new network leaves a broken profile behind: drop it
+        if password:
+            nm("connection", "delete", "id", ssid)
+        return fail(err or "could not connect")
+    return out({"ok": True})
+
+
+def saved():
+    _, o, _ = nm("-f", "NAME,TYPE,DEVICE,ACTIVE", "connection", "show")
+    res = []
+    for line in o.splitlines():
+        n, t, d, a = (split(line) + ["", "", "", ""])[:4]
+        if t in ("loopback", "bridge", "tun"):
+            continue
+        res.append({"name": n, "type": {"802-11-wireless": "wifi", "802-3-ethernet": "ethernet"}.get(t, t), "device": d, "active": a == "yes"})
+    return out({"ok": True, "saved": res})
+
+
+def dns(name, servers):
+    if servers == "auto":
+        code, _, err = nm("connection", "modify", name, "ipv4.dns", "", "ipv4.ignore-auto-dns", "no")
+    else:
+        if not all(re.fullmatch(r"[0-9a-fA-F:.]+", s) for s in servers.split(",")):
+            return fail("bad DNS server")
+        code, _, err = nm("connection", "modify", name, "ipv4.dns", servers.replace(",", " "), "ipv4.ignore-auto-dns", "yes")
+    if code != 0:
+        return fail(err)
+    nm("connection", "up", "id", name, timeout=30)
+    return out({"ok": True})
+
+
+def qr(name):
+    code, o, err = nm("-s", "-f", "802-11-wireless.ssid,802-11-wireless-security.key-mgmt,802-11-wireless-security.psk", "connection", "show", name)
+    if code != 0:
+        return fail(err)
+    vals = {}
+    for line in o.splitlines():
+        k, _, v = line.partition(":")
+        vals[k] = v
+    ssid, psk = vals.get("802-11-wireless.ssid", name), vals.get("802-11-wireless-security.psk", "")
+    kind = "WPA" if vals.get("802-11-wireless-security.key-mgmt") else "nopass"
+    esc = lambda s: re.sub(r'([\\;,:"])', r"\\\1", s)
+    text = f"WIFI:T:{kind};S:{esc(ssid)};" + (f"P:{esc(psk)};" if psk else "") + ";"
+    RUN.mkdir(parents=True, exist_ok=True)
+    os.chmod(RUN, 0o700)
+    path = RUN / "wifi-qr.png"
+    subprocess.run(["qrencode", "-o", str(path), "-s", "8", "-m", "2", text], check=False)
+    return out({"ok": path.exists(), "path": str(path), "ssid": ssid})
+
+
+def ping(host):
+    """Latency: a real request (through any tunnel) and a ping to the router."""
+    res = {"ok": True}
+    r = subprocess.run(["curl", "-o", "/dev/null", "-s", "-m", "6", "-w", "%{time_starttransfer}", "https://www.gstatic.com/generate_204"],
+                       capture_output=True, text=True)
+    try:
+        res["ms"] = round(float(r.stdout) * 1000) if r.returncode == 0 else None
+    except ValueError:
+        res["ms"] = None
+    p = primary()
+    gw = details(p["device"]).get("gateway") if p else None
+    if gw:
+        g = subprocess.run(["ping", "-c", "2", "-q", "-W", "2", gw], capture_output=True, text=True)
+        m = re.search(r"= [\d.]+/([\d.]+)/", g.stdout)
+        res["router"] = round(float(m.group(1)), 1) if m else None
+    return out(res)
+
+
+def main():
+    a = sys.argv[1:]
+    c = a[0] if a else "status"
+    try:
+        if c == "status": return status()
+        if c == "wifi": return wifi(len(a) > 1 and a[1] == "rescan")
+        if c == "radio" and len(a) > 1:
+            if a[1] == "on":
+                subprocess.run(["rfkill", "unblock", "wlan"], capture_output=True)
+            code, _, err = nm("radio", "wifi", "on" if a[1] == "on" else "off")
+            return out({"ok": code == 0, "error": err})
+        if c == "connect" and len(a) > 1: return connect(a[1], a[2] if len(a) > 2 else "")
+        if c == "disconnect" and len(a) > 1:
+            code, _, err = nm("device", "disconnect", a[1]); return out({"ok": code == 0, "error": err})
+        if c == "up" and len(a) > 1:
+            code, _, err = nm("connection", "up", "id", a[1], timeout=45); return out({"ok": code == 0, "error": err})
+        if c == "forget" and len(a) > 1:
+            code, _, err = nm("connection", "delete", "id", a[1]); return out({"ok": code == 0, "error": err})
+        if c == "saved": return saved()
+        if c == "details" and len(a) > 1: return out({"ok": True, **details(a[1])})
+        if c == "dns" and len(a) > 2: return dns(a[1], a[2])
+        if c == "qr" and len(a) > 1: return qr(a[1])
+        if c == "ping": return ping("")
+    except subprocess.TimeoutExpired:
+        return fail("timed out")
+    print(__doc__, file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

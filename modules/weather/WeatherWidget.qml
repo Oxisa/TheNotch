@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
 import "../../../osia.soundhub" as SH
+import "../../DeskStyle.js" as DS
 
 // The weather on the desktop, in one of three looks:
 //   capsule  a compact pill: glyph, temperature, city
@@ -22,11 +23,13 @@ Item {
   readonly property string look: mod ? mod.look : "capsule"
   readonly property var n: mod ? mod.now : null
   readonly property string city: mod && mod.place ? mod.place.name : (mod ? mod.t("Город не выбран", "No city set") : "")
-  readonly property color fg: Color.foreground
-  readonly property color accent: Color.accent
+  property var deskStyle: ({})
+  readonly property color fg: DS.fg(deskStyle, Color.foreground)
+  readonly property color accent: DS.accent(deskStyle, Color.accent)
   readonly property color bg: Color.background
   readonly property string ff: Style.font.family
-  readonly property real alpha: mod ? Number(mod.opt("opacity", 0.85)) : 0.85
+  readonly property real alpha: Number(DS.pick(deskStyle, "bgOpacity", mod ? Number(mod.opt("opacity", 0.85)) : 0.85))
+  readonly property color fill: DS.bg(deskStyle, bg, accent, alpha)
   readonly property string g: n ? mod.glyph(n.code, n.day) : "\u{f0595}"
   readonly property string temp: n ? mod.deg(n.temp) : "—"
 
@@ -44,9 +47,9 @@ Item {
     width: capRow.implicitWidth + Style.space(w.deskVertical ? 22 : 32)
     height: capRow.implicitHeight + Style.space(w.deskVertical ? 32 : 18)
     radius: Math.min(width, height) / 2
-    color: Qt.rgba(w.bg.r, w.bg.g, w.bg.b, w.alpha)
+    color: w.fill
     border.width: 1
-    border.color: SH.HubStyle.tint(w.fg, 0.08)
+    border.color: DS.border(w.deskStyle, w.fg)
     Row {
       id: capRow
       anchors.centerIn: parent
@@ -63,10 +66,14 @@ Item {
     visible: w.look === "card"
     width: Style.space(260)
     height: cardCol.implicitHeight + Style.space(32)
-    radius: SH.HubStyle.radius + Style.space(4)
-    color: Qt.rgba(w.bg.r, w.bg.g, w.bg.b, w.alpha)
+    radius: DS.radius(w.deskStyle, SH.HubStyle.radius + Style.space(4))
+    topLeftRadius: DS.corner(w.deskStyle, "tl", SH.HubStyle.radius + Style.space(4))
+    topRightRadius: DS.corner(w.deskStyle, "tr", SH.HubStyle.radius + Style.space(4))
+    bottomLeftRadius: DS.corner(w.deskStyle, "bl", SH.HubStyle.radius + Style.space(4))
+    bottomRightRadius: DS.corner(w.deskStyle, "br", SH.HubStyle.radius + Style.space(4))
+    color: w.fill
     border.width: 1
-    border.color: SH.HubStyle.tint(w.fg, 0.08)
+    border.color: DS.border(w.deskStyle, w.fg)
     Column {
       id: cardCol
       x: Style.space(18); y: Style.space(16)
@@ -127,8 +134,12 @@ Item {
     visible: w.look === "full"
     width: Style.space(330)
     height: fullCol.implicitHeight + Style.space(32)
-    radius: Style.space(22)
-    color: Qt.rgba(w.bg.r, w.bg.g, w.bg.b, w.alpha)
+    radius: DS.radius(w.deskStyle, Style.space(22))
+    topLeftRadius: DS.corner(w.deskStyle, "tl", Style.space(22))
+    topRightRadius: DS.corner(w.deskStyle, "tr", Style.space(22))
+    bottomLeftRadius: DS.corner(w.deskStyle, "bl", Style.space(22))
+    bottomRightRadius: DS.corner(w.deskStyle, "br", Style.space(22))
+    color: w.fill
     border.width: 1
     border.color: Qt.rgba(w.tone.r, w.tone.g, w.tone.b, 0.35)
     Rectangle {                                    // a wash of the weather's colour
@@ -188,7 +199,7 @@ Item {
     id: roundBox
     visible: w.look === "round"
     width: Style.space(190); height: width; radius: width / 2
-    color: Qt.rgba(w.bg.r, w.bg.g, w.bg.b, w.alpha)
+    color: w.fill
     border.width: 3
     border.color: Qt.rgba(w.tone.r, w.tone.g, w.tone.b, 0.6)
     Column {
@@ -212,8 +223,12 @@ Item {
     visible: w.look === "tile"
     width: tileRow.implicitWidth + Style.space(36)
     height: Style.space(84)
-    radius: Style.space(18)
-    color: Qt.rgba(w.bg.r, w.bg.g, w.bg.b, w.alpha)
+    radius: DS.radius(w.deskStyle, Style.space(18))
+    topLeftRadius: DS.corner(w.deskStyle, "tl", Style.space(18))
+    topRightRadius: DS.corner(w.deskStyle, "tr", Style.space(18))
+    bottomLeftRadius: DS.corner(w.deskStyle, "bl", Style.space(18))
+    bottomRightRadius: DS.corner(w.deskStyle, "br", Style.space(18))
+    color: w.fill
     border.width: 1
     border.color: Qt.rgba(w.tone.r, w.tone.g, w.tone.b, 0.35)
     Row {

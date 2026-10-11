@@ -6,6 +6,9 @@ import "../../../osia.soundhub" as SH
 Column {
   id: page
   property var notch: null
+  // which part to show: "notch" (where and how it looks), "system" (language)
+  // or "events" (which events pop out of the notch)
+  property string part: "notch"
   spacing: SH.HubStyle.gap
 
   readonly property color fg: notch ? notch.fg : "white"
@@ -28,6 +31,7 @@ Column {
   }
 
   Card {
+    visible: page.part === "notch"
     SH.HubRow {
       title: page.t("monitor"); fg: page.fg; fontFamily: page.ff
       SH.HubSelect {
@@ -67,7 +71,9 @@ Column {
   }
 
   Card {
+    visible: page.part !== "events"
     SH.HubRow {
+      visible: page.part === "notch"
       title: page.t("look"); fg: page.fg; fontFamily: page.ff
       SH.HubSelect {
         width: Style.space(160); showLabel: false
@@ -78,6 +84,7 @@ Column {
       }
     }
     SH.HubRow {
+      visible: page.part === "system"
       title: page.t("language"); fg: page.fg; fontFamily: page.ff
       SH.HubSelect {
         width: Style.space(160); showLabel: false
@@ -90,6 +97,7 @@ Column {
   }
 
   Card {
+    visible: page.part === "events"
     SH.HubRow {
       title: page.t("eventsVolume"); fg: page.fg; fontFamily: page.ff
       SH.HubSwitch {

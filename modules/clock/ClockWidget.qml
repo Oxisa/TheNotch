@@ -111,16 +111,6 @@ Column {
     }
   }
   SH.HubRow {
-    title: page.ru ? "Фон" : "Background"; fg: page.fg; fontFamily: page.ff
-    SH.HubSlider {
-      width: Style.space(176)
-      minimum: 0; maximum: 1; step: 0.05
-      value: page.mod ? Number(page.mod.opt("bgOpacity", 0)) : 0
-      fillColor: page.accent; fontFamily: page.ff
-      onReleased: function(v) { page.mod.persist({ bgOpacity: Math.round(v * 100) / 100 }) }
-    }
-  }
-  SH.HubRow {
     title: page.ru ? "Размер" : "Size"; fg: page.fg; fontFamily: page.ff
     SH.HubSlider {
       width: Style.space(176)
@@ -130,6 +120,39 @@ Column {
       onReleased: function(v) { page.set("scale", Math.round(v * 100) / 100) }
     }
   }
+  // Kronos's finer knobs (its rings and digits)
+  component Knob: SH.HubRow {
+    id: kn
+    property string key: ""
+    property real from: 0
+    property real to: 1
+    property real step: 0.05
+    property real fallback: 1
+    property var fmt: function(v) { return Math.round(v * 100) + "%" }
+    visible: page.mod && String(page.mod.opt("style", "kronos")) === "kronos"
+    fg: page.fg; fontFamily: page.ff
+    SH.HubSlider {
+      width: Style.space(176)
+      minimum: kn.from; maximum: kn.to; step: kn.step
+      value: page.cfg[kn.key] !== undefined ? Number(page.cfg[kn.key]) : kn.fallback
+      format: kn.fmt
+      fillColor: page.accent; fontFamily: page.ff
+      onReleased: function(v) { page.set(kn.key, Math.round(v * 100) / 100) }
+    }
+  }
+  Knob { key: "hourScale"; title: page.ru ? "Размер цифр часов" : "Hour digits"; from: 0.5; to: 2.5; fallback: 0.75 }
+  Knob { key: "minuteCapsuleScale"; title: page.ru ? "Капсула минут" : "Minute capsule"; from: 0.5; to: 2.5; fallback: 1 }
+  Knob { key: "ringDiameter"; title: page.ru ? "Диаметр колец" : "Ring size"; from: 0.25; to: 0.55; step: 0.01; fallback: 0.4 }
+  Knob { key: "ringGap"; title: page.ru ? "Расстояние между кольцами" : "Ring gap"; from: 24; to: 100; step: 1; fallback: 48; fmt: function(v) { return Math.round(v) + " px" } }
+  Knob { key: "ringArcDegrees"; title: page.ru ? "Длина дуги колец" : "Ring arc"; from: 60; to: 360; step: 10; fallback: 120; fmt: function(v) { return Math.round(v) + "°" } }
+  Knob { key: "ringTransparency"; title: page.ru ? "Непрозрачность колец" : "Ring opacity"; from: 0; to: 1; fallback: 1 }
+  // move the hour (and the date) inside the clock's block
+  Knob { key: "hourOffsetX"; title: page.ru ? "Час: влево — вправо" : "Hour: left — right"; from: -300; to: 300; step: 2; fallback: 0; fmt: function(v) { return Math.round(v) + " px" } }
+  Knob { key: "hourOffsetY"; title: page.ru ? "Час: вверх — вниз" : "Hour: up — down"; from: -300; to: 300; step: 2; fallback: 0; fmt: function(v) { return Math.round(v) + " px" } }
+  Knob { key: "dateOffsetX"; title: page.ru ? "Дата: влево — вправо" : "Date: left — right"; from: -300; to: 300; step: 2; fallback: 0; fmt: function(v) { return Math.round(v) + " px" } }
+  Knob { key: "dateOffsetY"; title: page.ru ? "Дата: вверх — вниз" : "Date: up — down"; from: -300; to: 300; step: 2; fallback: 0; fmt: function(v) { return Math.round(v) + " px" } }
+  Sw { key: "showRingLabels"; title: page.ru ? "Подписи на кольцах" : "Ring labels"; visible: page.mod && String(page.mod.opt("style", "kronos")) === "kronos" }
+  Sw { key: "showSecondCapsule"; title: page.ru ? "Капсула секунд" : "Seconds capsule"; visible: page.mod && String(page.mod.opt("style", "kronos")) === "kronos" }
   Sw { key: "use24h"; title: page.ru ? "24-часовой формат" : "24-hour clock" }
   Sw { key: "showSeconds"; title: page.ru ? "Кольцо секунд" : "Seconds ring" }
   Sw { key: "showDate"; title: page.ru ? "Дата" : "Date" }

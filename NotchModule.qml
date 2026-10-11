@@ -42,7 +42,9 @@ Item {
 
   property Component settingsPage: null
   property bool inRail: true
-  property int sectionOrder: 50            // place in the settings sidebar
+  property int sectionOrder: 50            // order inside its settings section
+  // which section of the settings window its settingsPage goes to (Sections.js)
+  property string settingsSection: "apps"
 
   // On/off from Settings → Modules. Core sections (Modules, Widgets…) can't
   // be switched off. A switched-off module leaves the icon row, shows no

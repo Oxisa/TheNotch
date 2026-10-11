@@ -12,6 +12,7 @@ Item {
   property var agentData: ({})
   property real size: Style.space(72)
   property bool showName: true
+  property bool showLogo: true             // the model's logo, faint, behind the percent
   property string sub: ""                  // replaces the reset timer under the name (e.g. "55°C")
   property bool ru: true
   property color fg: Color.foreground
@@ -58,6 +59,14 @@ Item {
       function onAccentChanged() { canvas.requestPaint() }
     }
     Component.onCompleted: requestPaint()
+    Text {
+      visible: r.showLogo && !!(r.agentData && r.agentData.glyph)
+      anchors.centerIn: parent
+      text: r.agentData && r.agentData.glyph ? r.agentData.glyph : ""
+      color: r.fg
+      opacity: 0.16
+      font.family: r.fontFamily; font.pixelSize: Math.round(r.size * 0.5)
+    }
     Text {
       anchors.centerIn: parent
       text: r.outer ? Math.round(r.outer.percent * 100) + "%" : "—"

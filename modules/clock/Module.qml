@@ -6,6 +6,7 @@ import "../.."
 import "../../../osia.soundhub" as SH
 import "kronos"
 import "kronos/ClockModel.js" as Clock
+import "../../DeskStyle.js" as DS
 
 // Clock: Kronos's orbital/digital desktop clock as a TheNotch widget (a fork
 // of MASH2RAFI/omarchy-kronos, MIT — see kronos/README.md for what changed).
@@ -75,15 +76,21 @@ NotchModule {
                                      + (fx < 0.34 ? "left" : fx > 0.66 ? "right" : "center")
       readonly property string look: String(cm.opt("style", "kronos"))   // kronos | type | flip | day
       // a card behind the clock, like the other widgets (0 = none, as before)
-      readonly property real bgAlpha: Number(cm.opt("bgOpacity", 0))
-      readonly property real pad: bgAlpha > 0 ? Style.space(18) : 0
+      property var deskStyle: ({})
+      property real deskScale: 1                    // the layout's scale, drawn natively (no blurry rings)
+      readonly property real bgAlpha: Number(DS.pick(deskStyle, "bgOpacity", cm.opt("bgOpacity", 0)))
+      readonly property real pad: bgAlpha > 0 ? Style.space(18) * deskScale : 0
       width: (look === "kronos" ? face.implicitWidth : styles.width) + pad * 2
       height: (look === "kronos" ? face.implicitHeight : styles.height) + pad * 2
       Rectangle {
         anchors.fill: parent
         visible: w.bgAlpha > 0
-        radius: Style.space(18)
-        color: Qt.rgba(Color.background.r, Color.background.g, Color.background.b, w.bgAlpha)
+        radius: DS.radius(w.deskStyle, Style.space(18))
+        topLeftRadius: DS.corner(w.deskStyle, "tl", Style.space(18))
+        topRightRadius: DS.corner(w.deskStyle, "tr", Style.space(18))
+        bottomLeftRadius: DS.corner(w.deskStyle, "bl", Style.space(18))
+        bottomRightRadius: DS.corner(w.deskStyle, "br", Style.space(18))
+        color: DS.bg(w.deskStyle, Color.background, Color.accent, w.bgAlpha)
         border.width: 1
         border.color: Qt.rgba(Color.foreground.r, Color.foreground.g, Color.foreground.b, 0.08)
       }
@@ -95,7 +102,7 @@ NotchModule {
         look: w.look === "kronos" ? "type" : w.look
         use24h: cm.cfg.use24h
         showDate: cm.cfg.showDate
-        size: cm.cfg.scale
+        size: cm.cfg.scale * w.deskScale
         ru: cm.ru
         vertical: w.deskVertical
       }
@@ -110,7 +117,7 @@ NotchModule {
       availableHeight: w.screenH
       screenMargin: cm.cfg.margin
       screenInsets: ({ top: 0, right: 0, bottom: 0, left: 0 })
-      scaleFactor: Clock.perMonitorScaleFactor(cm.cfg.scale, w.screenH, cm.cfg.perMonitorScale, cm.cfg.scaleReferenceHeight)
+      scaleFactor: Clock.perMonitorScaleFactor(cm.cfg.scale, w.screenH, cm.cfg.perMonitorScale, cm.cfg.scaleReferenceHeight) * w.deskScale
       hourScaleFactor: cm.cfg.hourScale
       dateScaleFactor: cm.cfg.dateScale
       subtimeScaleFactor: cm.cfg.subtimeScale

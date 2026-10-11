@@ -40,6 +40,14 @@ NotchModule {
     copiedIndex = i; resetCopied.restart()
   }
   Timer { id: resetCopied; interval: 1500; onTriggered: cb.copiedIndex = -1 }
+  // clear the history: Omarchy watches the file and empties its own list too;
+  // the pictures that were in it go as well
+  function clear() {
+    var imgs = history.filter(function(e) { return e.type === "image" && e.path }).map(function(e) { return e.path })
+    file.setText("[]\n")
+    if (imgs.length) Quickshell.execDetached(["rm", "-f", "--"].concat(imgs))
+    history = []
+  }
   function preview(e) { return e ? (e.type === "image" ? t("Картинка", "Picture") + (e.capturedAt ? " · " + e.capturedAt : "") : String(e.text || "").replace(/\s+/g, " ").trim()) : "" }
 
 }

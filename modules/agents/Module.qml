@@ -40,8 +40,8 @@ NotchModule {
 
   // ------------------------------------------------------------ agents
   readonly property var known: [
-    { id: "claude", name: "Claude", glyph: "\u{f0674}" },
-    { id: "codex", name: "Codex", glyph: "\u{f018d}" },
+    { id: "claude", name: "Claude", glyph: "\u{ec82}" },
+    { id: "codex", name: "Codex", glyph: "\u{ec81}" },
     { id: "gemini", name: "Gemini", glyph: "\u{f0674}" },
     { id: "opencode", name: "opencode", glyph: "\u{f018d}" }
   ]

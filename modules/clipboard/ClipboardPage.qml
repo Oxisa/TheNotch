@@ -27,11 +27,21 @@ Column {
     width: parent.width
     spacing: Style.space(6)
     SH.HubField {
-      width: parent.width - more.width - parent.spacing
+      width: parent.width - more.width - clearBtn.width - parent.spacing * 2
       icon: "󰍉"
       placeholderText: page.t("Найти в истории…", "Search the history…")
       fg: page.fg; accent: page.accent; fontFamily: page.ff
       onTextEdited: page.filter = text
+    }
+    SH.HubChip {
+      id: clearBtn
+      property int confirm: 0
+      icon: "\u{f01b4}"
+      label: confirm ? page.t("Ещё раз — очистить", "Again to clear") : page.t("Очистить", "Clear")
+      on: confirm > 0
+      fg: page.fg; accent: page.accent; ink: Color.background; fontFamily: page.ff
+      onClicked: { if (++confirm >= 2) { page.mod.clear(); confirm = 0 } else clearReset.restart() }
+      Timer { id: clearReset; interval: 3000; onTriggered: clearBtn.confirm = 0 }
     }
     SH.HubChip {
       id: more

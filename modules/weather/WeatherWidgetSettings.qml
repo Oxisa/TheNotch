@@ -35,15 +35,12 @@ Column {
       foreground: page.fg; accent: page.accent; background: page.bgc; fontFamily: page.ff
       onChanged: function(v) { page.mod.persist({ look: v }) }
     }
+  }  SH.HubRow {
+    visible: page.mod && ["full", "round", "tile"].indexOf(page.mod.look) >= 0
+    title: page.t("Цвета погоды", "Weather colours")
+    hint: page.t("Выкл — акцент темы с оттенком погоды; вкл — жёлтое солнце, голубой дождь…", "Off — the theme's accent with a hint of the weather; on — yellow sun, blue rain…")
+    fg: page.fg; fontFamily: page.ff
+    SH.HubSwitch { checked: page.mod ? page.mod.opt("weatherColours", false) === true : false; fg: page.fg; accent: page.accent; ink: page.bgc; onToggled: page.mod.persist({ weatherColours: !checked }) }
   }
-  SH.HubRow {
-    title: page.t("Фон", "Background"); fg: page.fg; fontFamily: page.ff
-    SH.HubSlider {
-      width: Style.space(176)
-      minimum: 0.2; maximum: 1; step: 0.05
-      value: page.mod ? Number(page.mod.opt("opacity", 0.85)) : 0.85
-      fillColor: page.accent; fontFamily: page.ff
-      onReleased: function(v) { page.mod.persist({ opacity: Math.round(v * 100) / 100 }) }
-    }
-  }
+
 }

@@ -9,5 +9,6 @@ NotchModule {
   inRail: false
   core: true
   sectionOrder: 1
+  settingsSection: "modules"
   settingsPage: Component { ModulesPage { notch: mm.notch } }
 }

@@ -40,8 +40,36 @@ PanelWindow {
   }) : []
 
   property var guidesX: []
+  // the tray of widgets on the left: drag one out to place it, drag a placed
+  // one back in to take it off this monitor
+  property bool trayOpen: false
+  property bool dragging: false                       // a placed widget is being dragged
+  readonly property bool trayShown: trayOpen
+  readonly property real trayW: Style.space(270)
+  // where a dragged widget can be dropped to take it off: the drop zone at the
+  // bottom left (shown while dragging), or the open tray
+  function overTray(x, y) {
+    if (dragging && y !== undefined && x < dropZone.x + dropZone.width + Style.space(10) && y > dropZone.y - Style.space(10)) return true
+    return trayShown && x < tray.x + tray.width + Style.space(10) && (y === undefined || (y > tray.y && y < tray.y + tray.height))
+  }
+  function placeHere(wid, x, y) {
+    var it = notch.deskItem(wid)
+    if (it && !it.enabled) it.setEnabled(true)
+    notch.setOnScreen(wid, screenName, true)
+    if (x !== undefined) notch.setPos(wid, screenName, Math.max(trayShown ? trayW + Style.space(24) : 0, x), y)
+    else {                                        // a click: the nearest free spot around the middle
+      var f = freeSpot(wid, Math.round(width / 2 - Style.space(110)), Math.round(height / 2 - Style.space(60)), Style.space(220), Style.space(120))
+      notch.setPos(wid, screenName, f.x, f.y)
+    }
+    notch.layoutPick = wid
+  }
+  function takeAway(wid) {
+    if (notch.placesOf(wid).length <= 1) { var it = notch.deskItem(wid); if (it) it.setEnabled(false) }
+    notch.setOnScreen(wid, screenName, false)
+    if (notch.layoutPick === wid) notch.layoutPick = ""
+  }
   // the widget whose settings panel is open (click a widget to pick it)
-  property string selected: ""
+  readonly property string selected: notch ? notch.layoutPick : ""
   function proxyOf(wid) { for (var i = 0; i < proxies.count; i++) { var p = proxies.itemAt(i); if (p && p.wid === wid) return p } return null }
   readonly property var selItem: { var s = selected; return s ? here.filter(function(d) { return d.wid === s })[0] || null : null }
   property var guidesY: []
@@ -50,7 +78,7 @@ PanelWindow {
   Rectangle {
     anchors.fill: parent
     color: Qt.rgba(0, 0, 0, 0.55)
-    MouseArea { anchors.fill: parent; onClicked: ed.selected = "" }
+    MouseArea { anchors.fill: parent; onClicked: ed.notch.layoutPick = "" }
   }
   Canvas {
     id: grid
@@ -149,8 +177,9 @@ PanelWindow {
       property bool canVertical: false
       readonly property var turnInfo: ed.notch.turnOf(rot, canVertical)   // not "turn": the rotate handle has that id
       readonly property real sc: start.scale || 1
-      readonly property real cw: content.item ? content.item.width * sc : 60
-      readonly property real ch: content.item ? content.item.height * sc : 40
+      readonly property real ks: content.item && ("deskScale" in content.item) ? 1 : sc
+      readonly property real cw: content.item ? content.item.width * ks : 60
+      readonly property real ch: content.item ? content.item.height * ks : 40
       readonly property real rad: turnInfo.rot * Math.PI / 180
       readonly property var at: ed.notch.anchored(start, realW, realH, ed.screen ? ed.screen.width : ed.width, ed.screen ? ed.screen.height : ed.height)
       // the real box (the frame below has a minimum size)
@@ -181,7 +210,8 @@ PanelWindow {
         id: content
         anchors.centerIn: parent
         rotation: px.turnInfo.rot
-        scale: px.sc
+        scale: px.ks
+        opacity: ed.notch.styleOf(px.wid).opacity !== undefined ? Number(ed.notch.styleOf(px.wid).opacity) : 1
         sourceComponent: px.modelData.component
         onLoaded: { px.canVertical = "deskVertical" in item; px.feed() }
       }
@@ -190,6 +220,9 @@ PanelWindow {
         if (!it) return
         if ("editing" in it) it.editing = true
         if ("deskVertical" in it) it.deskVertical = px.turnInfo.vertical
+        if ("deskStyle" in it) it.deskStyle = Qt.binding(function() { return ed.notch.styleOf(px.wid) })
+        if ("deskId" in it) it.deskId = px.wid
+        if ("deskScale" in it) it.deskScale = Qt.binding(function() { return px.sc })
         // the screen's size, not this window's (still 0 × 0 while it maps)
         var sw = ed.screen ? ed.screen.width : ed.width, sh = ed.screen ? ed.screen.height : ed.height
         if ("screenW" in it) it.screenW = sw
@@ -214,7 +247,8 @@ PanelWindow {
         cursorShape: px.locked ? Qt.PointingHandCursor : pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
         property real ox: 0
         property real oy: 0
-        onPressed: function(m) { ox = m.x; oy = m.y; ed.selected = px.wid }
+        onPressed: function(m) { ox = m.x; oy = m.y; ed.notch.layoutPick = px.wid }
+        onPressedChanged: ed.dragging = pressed && !px.locked
         onPositionChanged: function(m) {
           if (!pressed || px.locked) return
           var p = mapToItem(null, m.x, m.y)
@@ -222,9 +256,11 @@ PanelWindow {
           px.x = s.x; px.y = s.y
           px.feed()
         }
-        onReleased: {
+        onReleased: function(m) {
           ed.guidesX = []; ed.guidesY = []
           if (px.locked) return
+          var at = mapToItem(null, m.x, m.y)
+          if (ed.overTray(at.x, at.y)) { ed.takeAway(px.wid); return }
           var f = ed.freeSpot(px.wid, px.x, px.y, px.width, px.height)
           px.x = f.x; px.y = f.y
           ed.notch.setPos(px.wid, ed.screenName, f.x, f.y, px.realW, px.realH)
@@ -267,6 +303,128 @@ PanelWindow {
       }
 
     }
+  }
+
+  // ------------------------------------------------------------------ tray
+  Rectangle {
+    id: tray
+    z: 18
+    x: ed.trayShown ? Style.space(14) : -width - Style.space(20)
+    Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+    y: Style.space(170)
+    width: ed.trayW
+    height: Math.min(ed.height * 0.6, trayCol.implicitHeight + Style.space(26))
+    radius: SH.HubStyle.radius + Style.space(4)
+    color: ed.bgc
+    border.width: 1
+    border.color: SH.HubStyle.tint(ed.fg, 0.14)
+    MouseArea { anchors.fill: parent }
+    Flickable {
+      anchors.fill: parent
+      anchors.margins: Style.space(12)
+      contentHeight: trayCol.implicitHeight
+      clip: true
+      interactive: contentHeight > height
+      boundsBehavior: Flickable.StopAtBounds
+      Column {
+        id: trayCol
+        width: parent.width
+        spacing: Style.space(6)
+        Text { text: "\u{f072c}  " + (ed.ru ? "Виджеты" : "Widgets"); color: ed.fg; font.family: ed.ff; font.pixelSize: Style.font.body + 1; font.bold: true }
+        Text {
+          width: parent.width; wrapMode: Text.Wrap
+          text: ed.ru ? "Перетащите на стол или нажмите, чтобы поставить" : "Drag onto the desktop, or click to place"
+          color: Qt.darker(ed.fg, 1.6); font.family: ed.ff; font.pixelSize: Style.font.caption - 1
+        }
+        Repeater {
+          model: ed.notch ? ed.notch.deskItems : []
+          delegate: Rectangle {
+            id: card
+            required property var modelData
+            readonly property bool here: ed.here.some(function(d) { return d.wid === modelData.wid })
+            width: trayCol.width; height: Style.space(46)
+            radius: SH.HubStyle.radiusSmall + Style.space(2)
+            color: here ? SH.HubStyle.tint(ed.accent, 0.18) : SH.HubStyle.tint(ed.fg, cardMouse.containsMouse ? 0.10 : 0.05)
+            Row {
+              anchors.verticalCenter: parent.verticalCenter
+              x: Style.space(12)
+              spacing: Style.space(10)
+              Text { anchors.verticalCenter: parent.verticalCenter; text: card.modelData.icon; color: card.here ? ed.accent : ed.fg; font.family: ed.ff; font.pixelSize: Style.font.body + 3 }
+              Column {
+                anchors.verticalCenter: parent.verticalCenter
+                Text { text: card.modelData.title; color: ed.fg; font.family: ed.ff; font.pixelSize: Style.font.caption + 1; font.bold: card.here; width: trayCol.width - Style.space(60); elide: Text.ElideRight }
+                Text {
+                  text: card.here ? (ed.ru ? "на этом мониторе" : "on this monitor") : (ed.ru ? "не на столе" : "not placed")
+                  color: card.here ? ed.accent : Qt.darker(ed.fg, 1.6); font.family: ed.ff; font.pixelSize: Style.font.caption - 2
+                }
+              }
+            }
+            MouseArea {
+              id: cardMouse
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+              property bool moved: false
+              onPressed: function(m) { moved = false; ghost.label = card.modelData.icon + "  " + card.modelData.title }
+              onPositionChanged: function(m) {
+                if (!pressed) return
+                var p = mapToItem(ed.contentItem, m.x, m.y)
+                if (!moved && p.x > tray.x + tray.width) moved = true
+                ghost.x = p.x - ghost.width / 2; ghost.y = p.y - ghost.height / 2
+                ghost.visible = moved
+              }
+              onReleased: function(m) {
+                var p = mapToItem(ed.contentItem, m.x, m.y)
+                ghost.visible = false
+                if (moved && !ed.overTray(p.x, p.y)) ed.placeHere(card.modelData.wid, Math.round(p.x - Style.space(40)), Math.round(p.y - Style.space(20)))
+                else if (!moved) { if (card.here) ed.notch.layoutPick = card.modelData.wid; else ed.placeHere(card.modelData.wid) }
+              }
+            }
+          }
+        }
+        Item { width: 1; height: Style.space(8) }
+        Text { text: "\u{f0416}  " + (ed.ru ? "Свой виджет" : "Your own widget"); color: ed.fg; font.family: ed.ff; font.pixelSize: Style.font.body + 1; font.bold: true }
+        Flow {
+          width: parent.width
+          spacing: Style.space(6)
+          Repeater {
+            model: ["text", "command", "image", "note"]
+            delegate: SH.HubChip {
+              required property string modelData
+              icon: ed.notch.customIcon(modelData); label: ed.notch.customTitle(modelData)
+              subtle: true
+              h: Style.space(28)
+              fg: ed.fg; accent: ed.accent; fontFamily: ed.ff
+              onClicked: { var wid = ed.notch.addCustom(modelData); placeLater.wid = wid; placeLater.restart() }
+            }
+          }
+        }
+        Timer { id: placeLater; property string wid: ""; interval: 150; onTriggered: ed.placeHere(wid) }
+      }
+    }
+  }
+  // while a placed widget is dragged: drop it here to take it off this monitor
+  Rectangle {
+    id: dropZone
+    z: 19
+    visible: ed.dragging
+    x: Style.space(24); y: ed.height - height - Style.space(24)
+    width: dz.implicitWidth + Style.space(36); height: Style.space(52)
+    radius: height / 2
+    color: SH.HubStyle.tint(ed.accent, 0.25)
+    border.width: 2; border.color: ed.accent
+    Text { id: dz; anchors.centerIn: parent; text: "\u{f01b4}  " + (ed.ru ? "Убрать в корзину" : "Put back in the tray"); color: ed.fg; font.family: ed.ff; font.pixelSize: Style.font.body; font.bold: true }
+  }
+  // what follows the pointer while a widget is dragged out of the tray
+  Rectangle {
+    id: ghost
+    property string label: ""
+    visible: false
+    z: 30
+    width: gl.implicitWidth + Style.space(28); height: Style.space(40)
+    radius: height / 2
+    color: ed.accent
+    Text { id: gl; anchors.centerIn: parent; text: ghost.label; color: ed.bgc; font.family: ed.ff; font.pixelSize: Style.font.body; font.bold: true }
   }
 
   // ------------------------------------------------- the picked widget's panel
@@ -332,29 +490,151 @@ PanelWindow {
                   else if (modelData.id === "right") p.reshape({ rot: norm(Math.round((p.rot + 90) / 90) * 90) })
                   else if (modelData.id === "zero") p.reshape({ rot: 0 })
                   else if (modelData.id === "lock") ed.notch.setLock(p.wid, ed.screenName, !p.locked)
-                  else ed.selected = ""
+                  else ed.notch.layoutPick = ""
                 }
               }
             }
           }
         }
-        SH.HubRow {
-          title: ed.ru ? "Масштаб" : "Scale"
-          fg: ed.fg; fontFamily: ed.ff
-          SH.HubSlider {
-            width: Style.space(170)
-            minimum: 0.5; maximum: 2; step: 0.05
-            value: panel.px ? panel.px.sc : 1
-            fillColor: ed.accent; fontFamily: ed.ff
-            onReleased: function(v) { if (panel.px) panel.px.reshape({ scale: v }) }
+        // three tabs: the widget's own settings, its look, its place
+        property string tab: "look"
+        Row {
+          spacing: Style.space(4)
+          Repeater {
+            model: [{ id: "look", label: ed.ru ? "Вид" : "Look" }, { id: "style", label: ed.ru ? "Оформление" : "Style" },
+                    { id: "place", label: ed.ru ? "Место" : "Place" }]
+            delegate: SH.HubChip {
+              required property var modelData
+              label: modelData.label
+              on: pcol.tab === modelData.id
+              h: Style.space(28)
+              fg: ed.fg; accent: ed.accent; ink: ed.bgc; fontFamily: ed.ff
+              onClicked: pcol.tab = modelData.id
+            }
           }
         }
-        Rectangle { width: parent.width; height: 1; color: SH.HubStyle.tint(ed.fg, 0.08); visible: ed.selItem && ed.selItem.page }
+        Rectangle { width: parent.width; height: 1; color: SH.HubStyle.tint(ed.fg, 0.08) }
+
+        // ---- look: the widget's own settings
         Loader {
+          visible: pcol.tab === "look"
           width: parent.width
           active: panel.visible && !!(ed.selItem && ed.selItem.page)
           sourceComponent: ed.selItem ? ed.selItem.page : null
           onLoaded: item.width = Qt.binding(function() { return width })
+        }
+        Text {
+          visible: pcol.tab === "look" && !(ed.selItem && ed.selItem.page)
+          text: ed.ru ? "У этого виджета нет своих настроек" : "This widget has no settings of its own"
+          color: Qt.darker(ed.fg, 1.6); font.family: ed.ff; font.pixelSize: Style.font.caption
+        }
+
+        // ---- style: the look every widget shares (DeskStyle.js)
+        Column {
+          visible: pcol.tab === "style"
+          width: parent.width
+          spacing: Style.space(6)
+          readonly property var st: ed.selected ? ed.notch.styleOf(ed.selected) : ({})
+          function set(v) { ed.notch.setStyle(ed.selected, v) }
+          component Swatches: Row {
+            id: sw
+            property string key: ""
+            property string current: "theme"
+            property bool withAccent: true
+            spacing: Style.space(5)
+            Repeater {
+              model: ["theme"].concat(sw.withAccent ? ["accent"] : []).concat(["#000000", "#ffffff", "#e06c75", "#e5b450", "#98c379", "#61afef", "#c678dd"])
+              delegate: Rectangle {
+                required property string modelData
+                readonly property bool on: sw.current === modelData
+                width: Style.space(22); height: width; radius: width / 2
+                color: modelData === "theme" ? "transparent" : modelData === "accent" ? ed.accent : modelData
+                border.width: on ? 3 : 1
+                border.color: on ? ed.accent : SH.HubStyle.tint(ed.fg, 0.3)
+                Text { visible: modelData === "theme"; anchors.centerIn: parent; text: "\u{f03d8}"; color: ed.fg; font.family: ed.ff; font.pixelSize: Style.font.caption }
+                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { var v = {}; v[sw.key] = modelData === "theme" ? null : modelData; styleCol.set(v) } }
+              }
+            }
+          }
+          id: styleCol
+          SH.HubRow { title: ed.ru ? "Фон" : "Background"; fg: ed.fg; fontFamily: ed.ff
+            Swatches { key: "bg"; current: styleCol.st.bg || "theme" } }
+          SH.HubRow { title: ed.ru ? "Прозрачность фона" : "Background opacity"; fg: ed.fg; fontFamily: ed.ff
+            SH.HubSlider { width: Style.space(150); minimum: 0; maximum: 1; step: 0.05
+              value: styleCol.st.bgOpacity !== undefined ? Number(styleCol.st.bgOpacity) : 0.85
+              fillColor: ed.accent; fontFamily: ed.ff
+              onReleased: function(v) { styleCol.set({ bgOpacity: Math.round(v * 100) / 100 }) } } }
+          SH.HubRow { title: ed.ru ? "Скругление" : "Corners"; fg: ed.fg; fontFamily: ed.ff
+            SH.HubSlider { width: Style.space(150); minimum: 0; maximum: 48; step: 1
+              value: styleCol.st.radius !== undefined ? Number(styleCol.st.radius) : 16
+              format: function(v) { return Math.round(v) + " px" }
+              fillColor: ed.accent; fontFamily: ed.ff
+              onReleased: function(v) { styleCol.set({ radius: Math.round(v) }) } } }
+          SH.HubRow { title: ed.ru ? "Углы по отдельности" : "Corners one by one"; fg: ed.fg; fontFamily: ed.ff
+            SH.HubSwitch {
+              checked: !!styleCol.st.corners
+              fg: ed.fg; accent: ed.accent; ink: ed.bgc
+              onToggled: {
+                var r = styleCol.st.radius !== undefined ? Number(styleCol.st.radius) : 16
+                styleCol.set({ corners: checked ? null : { tl: r, tr: r, bl: r, br: r } })
+              }
+            } }
+          Repeater {
+            model: styleCol.st.corners ? [{ k: "tl", l: ed.ru ? "↖ Левый верхний" : "↖ Top left" }, { k: "tr", l: ed.ru ? "↗ Правый верхний" : "↗ Top right" },
+                                          { k: "bl", l: ed.ru ? "↙ Левый нижний" : "↙ Bottom left" }, { k: "br", l: ed.ru ? "↘ Правый нижний" : "↘ Bottom right" }] : []
+            delegate: SH.HubRow {
+              required property var modelData
+              title: modelData.l; fg: ed.fg; fontFamily: ed.ff
+              SH.HubSlider { width: Style.space(150); minimum: 0; maximum: 64; step: 1
+                value: Number(styleCol.st.corners[modelData.k] || 0)
+                format: function(v) { return Math.round(v) + " px" }
+                fillColor: ed.accent; fontFamily: ed.ff
+                onReleased: function(v) { var c = Object.assign({}, styleCol.st.corners); c[modelData.k] = Math.round(v); styleCol.set({ corners: c }) } }
+            }
+          }
+          SH.HubRow { title: ed.ru ? "Рамка" : "Border"; fg: ed.fg; fontFamily: ed.ff
+            SH.HubSwitch { checked: styleCol.st.border !== false; fg: ed.fg; accent: ed.accent; ink: ed.bgc; onToggled: styleCol.set({ border: !checked }) } }
+          SH.HubRow { title: ed.ru ? "Тень" : "Shadow"; fg: ed.fg; fontFamily: ed.ff
+            SH.HubSwitch { checked: styleCol.st.shadow === true; fg: ed.fg; accent: ed.accent; ink: ed.bgc; onToggled: styleCol.set({ shadow: !checked }) } }
+          SH.HubRow { title: ed.ru ? "Прозрачность виджета" : "Widget opacity"; fg: ed.fg; fontFamily: ed.ff
+            SH.HubSlider { width: Style.space(150); minimum: 0.2; maximum: 1; step: 0.05
+              value: styleCol.st.opacity !== undefined ? Number(styleCol.st.opacity) : 1
+              fillColor: ed.accent; fontFamily: ed.ff
+              onReleased: function(v) { styleCol.set({ opacity: Math.round(v * 100) / 100 }) } } }
+          SH.HubRow { title: ed.ru ? "Цвет текста" : "Text colour"; fg: ed.fg; fontFamily: ed.ff
+            Swatches { key: "text"; withAccent: false; current: styleCol.st.text || "theme" } }
+          SH.HubRow { title: ed.ru ? "Акцент" : "Accent"; fg: ed.fg; fontFamily: ed.ff
+            Swatches { key: "accent"; withAccent: false; current: styleCol.st.accent || "theme" } }
+          SH.HubChip {
+            icon: "\u{f099b}"; label: ed.ru ? "Сбросить оформление" : "Reset the style"
+            h: Style.space(28)
+            fg: ed.fg; accent: ed.accent; fontFamily: ed.ff
+            onClicked: { var v = {}; for (var k in styleCol.st) v[k] = null; styleCol.set(v) }
+          }
+        }
+
+        // ---- place: turn, scale, lock
+        Column {
+          visible: pcol.tab === "place"
+          width: parent.width
+          spacing: Style.space(6)
+          SH.HubRow {
+            title: ed.ru ? "Масштаб" : "Scale"
+            fg: ed.fg; fontFamily: ed.ff
+            SH.HubSlider {
+              width: Style.space(170)
+              minimum: 0.5; maximum: 2; step: 0.05
+              value: panel.px ? panel.px.sc : 1
+              fillColor: ed.accent; fontFamily: ed.ff
+              onReleased: function(v) { if (panel.px) panel.px.reshape({ scale: v }) }
+            }
+          }
+          Text {
+            width: parent.width; wrapMode: Text.Wrap
+            text: ed.ru ? "Поворот и замок — кнопками вверху панели; на 90° виджет перестраивается вертикально"
+                        : "Turn and lock with the buttons on top; at 90° the widget switches to its vertical layout"
+            color: Qt.darker(ed.fg, 1.6); font.family: ed.ff; font.pixelSize: Style.font.caption - 1
+          }
         }
       }
     }
@@ -386,27 +666,13 @@ PanelWindow {
           font.family: ed.ff; font.pixelSize: Style.font.body; font.bold: true
           rightPadding: Style.space(8)
         }
-        Repeater {
-          model: ed.notch ? ed.notch.deskItems : []
-          delegate: SH.HubChip {
-            required property var modelData
-            readonly property bool onHere: ed.here.some(function(d) { return d.wid === modelData.wid })
-            icon: modelData.icon
-            label: modelData.title
-            on: onHere
-            subtle: true
-            h: Style.space(28)
-            fg: ed.fg; accent: ed.accent; fontFamily: ed.ff
-            onClicked: {
-              if (onHere) {
-                if (ed.notch.placesOf(modelData.wid).length <= 1) modelData.setEnabled(false)
-                ed.notch.setOnScreen(modelData.wid, ed.screenName, false)
-              } else {
-                if (!modelData.enabled) modelData.setEnabled(true)
-                ed.notch.setOnScreen(modelData.wid, ed.screenName, true)
-              }
-            }
-          }
+        SH.HubChip {
+          icon: "\u{f072c}"
+          label: ed.ru ? "Корзина виджетов" : "Widget tray"
+          on: ed.trayOpen
+          h: Style.space(28)
+          fg: ed.fg; accent: ed.accent; ink: ed.bgc; fontFamily: ed.ff
+          onClicked: ed.trayOpen = !ed.trayOpen
         }
         SH.HubChip {
           icon: "󰄬"
@@ -419,8 +685,8 @@ PanelWindow {
       }
       Text {
         anchors.horizontalCenter: parent.horizontalCenter
-        text: ed.ru ? "Тяните виджеты — они липнут к сетке, краям и друг к другу · клик — настройки рядом: поворот, масштаб, вид · Esc — готово"
-                    : "Drag the widgets — they stick to the grid, the edges and each other · click — settings beside it: turn, scale, look · Esc — done"
+        text: ed.ru ? "Тяните виджеты — они липнут к сетке и друг к другу · клик — настройки рядом · из корзины — на стол, со стола — в корзину · Esc — готово"
+                    : "Drag widgets — they stick to the grid and each other · click — settings beside it · tray to desk, desk to tray · Esc — done"
         color: Qt.darker(ed.fg, 1.6)
         font.family: ed.ff; font.pixelSize: Style.font.caption - 1
       }
@@ -430,6 +696,6 @@ PanelWindow {
   Item {
     anchors.fill: parent
     focus: true
-    Keys.onEscapePressed: if (ed.selected) ed.selected = ""; else ed.notch.editLayout(false)
+    Keys.onEscapePressed: if (ed.selected) ed.notch.layoutPick = ""; else ed.notch.editLayout(false)
   }
 }

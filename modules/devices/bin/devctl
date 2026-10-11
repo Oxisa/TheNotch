@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+"""Devices backend for TheNotch: Bluetooth (bluetoothctl), batteries
+(UPower + Bluetooth), printers (CUPS), cameras (V4L2).
+
+  status                      everything below in one object
+  bt power on|off
+  bt scan [SECONDS]           discover nearby devices for a while (background)
+  bt connect|disconnect|pair|remove|trust MAC
+  printer default NAME | printer test NAME | printer cancel JOB
+  camera preview DEVICE       a live preview window (mpv)
+
+Every command prints one JSON object.
+"""
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+KINDS = {  # bluez icon → our kind
+    "audio-headset": "headphones", "audio-headphones": "headphones", "audio-card": "speaker",
+    "input-mouse": "mouse", "input-keyboard": "keyboard", "input-gaming": "gamepad", "input-tablet": "tablet",
+    "phone": "phone", "computer": "computer", "camera-video": "camera", "printer": "printer",
+}
+
+
+def run(args, timeout=8):
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        return r.returncode, r.stdout, r.stderr.strip()
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return 1, "", str(e)
+
+
+def out(obj):
+    print(json.dumps(obj, ensure_ascii=False))
+    return 0 if obj.get("ok", True) else 1
+
+
+def bt_devices():
+    _, o, _ = run(["bluetoothctl", "devices"])
+    res = []
+    for line in o.splitlines():
+        m = re.match(r"Device ([0-9A-F:]{17}) (.*)", line)
+        if not m:
+            continue
+        mac, name = m.groups()
+        _, info, _ = run(["bluetoothctl", "info", mac])
+        f = lambda k: (re.search(rf"^\s*{k}: (.*)$", info, re.M) or [None, ""])[1].strip()
+        bat = re.search(r"Battery Percentage: 0x[0-9a-f]+ \((\d+)\)", info)
+        icon = f("Icon")
+        res.append({"mac": mac, "name": f("Alias") or name, "kind": KINDS.get(icon, "other"), "icon": icon,
+                    "paired": f("Paired") == "yes", "connected": f("Connected") == "yes", "trusted": f("Trusted") == "yes",
+                    "battery": int(bat.group(1)) if bat else None})
+    res.sort(key=lambda d: (not d["connected"], not d["paired"], d["name"].lower()))
+    return res
+
+
+def bt_state():
+    _, o, _ = run(["bluetoothctl", "show"])
+    return {"present": "Controller" in o, "powered": "Powered: yes" in o, "discovering": "Discovering: yes" in o,
+            "name": (re.search(r"Alias: (.*)", o) or [None, ""])[1].strip()}
+
+
+def batteries(bt):
+    """UPower devices with a battery (mice, keyboards, headsets, phones…), plus
+    Bluetooth batteries UPower doesn't list; the computer's own battery too."""
+    res, seen = [], set()
+    _, o, _ = run(["upower", "-e"])
+    for path in o.split():
+        if path.endswith("DisplayDevice") or "line_power" in path:
+            continue
+        _, info, _ = run(["upower", "-i", path])
+        pct = re.search(r"percentage:\s+([\d.]+)%", info)
+        if not pct:
+            continue
+        model = (re.search(r"model:\s+(.*)", info) or [None, ""])[1].strip()
+        kind = (re.search(r"^\s{2}(\w[\w-]*)\n", info, re.M) or [None, ""])[1]
+        native = (re.search(r"native-path:\s+(.*)", info) or [None, ""])[1]
+        state = (re.search(r"state:\s+(.*)", info) or [None, ""])[1].strip()
+        mac = re.search(r"dev_([0-9A-F_]{17})", native)
+        if mac:
+            seen.add(mac.group(1).replace("_", ":"))
+        kind = {"headset": "headphones", "headphones": "headphones", "mouse": "mouse", "keyboard": "keyboard",
+                "phone": "phone", "gaming-input": "gamepad", "battery": "computer", "touchpad": "mouse"}.get(kind, kind or "other")
+        if "battery_BAT" in path:
+            kind, model = "computer", model or "Computer"
+        res.append({"name": model or kind, "kind": kind, "percent": round(float(pct.group(1))), "charging": state == "charging"})
+    for d in bt:
+        if d["connected"] and d["battery"] is not None and d["mac"] not in seen:
+            res.append({"name": d["name"], "kind": d["kind"], "percent": d["battery"], "charging": False})
+    return res
+
+
+def printers():
+    _, o, _ = run(["lpstat", "-p", "-d"])
+    default = (re.search(r"system default destination: (\S+)", o) or [None, ""])[1]
+    res = []
+    for m in re.finditer(r"^printer (\S+) (?:is )?(idle|now printing|disabled)?(.*)$", o, re.M):
+        res.append({"name": m.group(1), "state": (m.group(2) or "").strip() or m.group(3).strip(), "default": m.group(1) == default})
+    _, j, _ = run(["lpstat", "-o"])
+    jobs = [{"id": l.split()[0], "user": l.split()[1] if len(l.split()) > 1 else ""} for l in j.splitlines() if l.strip()]
+    return {"list": res, "jobs": jobs, "cups": shutil.which("lpstat") is not None}
+
+
+def cameras():
+    _, o, _ = run(["v4l2-ctl", "--list-devices"])
+    res, cur = [], None
+    for line in o.splitlines():
+        if line and not line.startswith("\t"):
+            cur = {"name": re.sub(r"\s*\(.*\):?$", "", line).rstrip(":"), "devices": []}
+            res.append(cur)
+        elif cur and line.strip().startswith("/dev/video"):
+            cur["devices"].append(line.strip())
+    return [c for c in res if c["devices"]]
+
+
+def status():
+    bt = bt_devices()
+    return out({"ok": True, "bt": bt_state(), "devices": bt, "batteries": batteries(bt), "printers": printers(), "cameras": cameras()})
+
+
+def main():
+    a = sys.argv[1:]
+    c = a[0] if a else "status"
+    if c == "status":
+        return status()
+    if c == "bt" and len(a) > 1:
+        if a[1] == "power" and len(a) > 2:
+            if a[2] == "on":
+                run(["rfkill", "unblock", "bluetooth"])
+            code, o, e = run(["bluetoothctl", "power", a[2]])
+            return out({"ok": code == 0, "error": e})
+        if a[1] == "scan":
+            secs = a[2] if len(a) > 2 else "12"
+            subprocess.Popen(["bluetoothctl", "--timeout", secs, "scan", "on"], stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+            return out({"ok": True})
+        if a[1] in ("connect", "disconnect", "remove", "trust") and len(a) > 2:
+            code, o, e = run(["bluetoothctl", a[1], a[2]], timeout=20)
+            ok = code == 0 and "Failed" not in o
+            return out({"ok": ok, "error": "" if ok else (e or o.strip().splitlines()[-1] if o.strip() else "failed")})
+        if a[1] == "pair" and len(a) > 2:
+            mac = a[2]
+            for step in (["pair", mac], ["trust", mac], ["connect", mac]):
+                code, o, e = run(["bluetoothctl", *step], timeout=30)
+                if step[0] != "trust" and (code != 0 or "Failed" in o):
+                    return out({"ok": False, "error": (o.strip().splitlines() or [e])[-1]})
+            return out({"ok": True})
+    if c == "printer" and len(a) > 2:
+        if a[1] == "default":
+            code, _, e = run(["lpoptions", "-d", a[2]]); return out({"ok": code == 0, "error": e})
+        if a[1] == "test":
+            page = "/usr/share/cups/data/testprint"
+            code, _, e = run(["lp", "-d", a[2], page]); return out({"ok": code == 0, "error": e})
+        if a[1] == "cancel":
+            code, _, e = run(["cancel", a[2]]); return out({"ok": code == 0, "error": e})
+    if c == "camera" and len(a) > 2 and a[1] == "preview":
+        subprocess.Popen(["mpv", "--no-config", "--profile=low-latency", "--untimed", "--title=Camera", f"av://v4l2:{a[2]}"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        return out({"ok": True})
+    print(__doc__, file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

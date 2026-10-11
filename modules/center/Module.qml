@@ -63,6 +63,10 @@ NotchModule {
       out.push({ id: "wifi", icon: "\u{f05a9}", label: "Wi-Fi", on: sys.wifi === "enabled", sub: sys.wifi === "enabled" ? t("вкл", "on") : t("выкл", "off") })
     out.push({ id: "bt", icon: sys.bt ? "\u{f00af}" : "\u{f00b2}", label: "Bluetooth", on: !!sys.bt,
                sub: headphones ? headphones.name + (headphones.battery !== null ? " · " + headphones.battery + "%" : "") : (sys.bt ? t("вкл", "on") : t("выкл", "off")) })
+    var hph = moduleById("headphones")
+    if (hph && hph.active && hph.present)
+      out.push({ id: "hp", icon: hph.modeIcon(hph.mode), label: hph.st.model || t("Наушники", "Headphones"), on: hph.mode !== "off",
+                 sub: hph.modeName(hph.mode) + (hph.st.battery !== undefined ? " · " + hph.st.battery + "%" : "") })
     out.push({ id: "night", icon: "\u{f0594}", label: t("Ночной свет", "Night light"), on: !!sys.night, sub: sys.night ? t("вкл", "on") : t("выкл", "off") })
     if (notif) out.push({ id: "dnd", icon: notif.dnd ? "\u{f009b}" : "\u{f009a}", label: t("Не беспокоить", "Do not disturb"), on: notif.dnd, sub: notif.dnd ? t("вкл", "on") : t("выкл", "off") })
     out.push({ id: "mic", icon: micMuted ? "\u{f036d}" : "\u{f036c}", label: t("Микрофон", "Microphone"), on: !micMuted, sub: micMuted ? t("выключен", "muted") : t("включён", "live") })
@@ -78,6 +82,7 @@ NotchModule {
     switch (id) {
       case "wifi": run(["nmcli", "radio", "wifi", sys.wifi === "enabled" ? "off" : "on"]); break
       case "bt": run(["omarchy-bluetooth-power", "toggle"]); break
+      case "hp": moduleById("headphones").cmd(["cycle"]); break
       case "night": run(["omarchy", "toggle", "nightlight"]); break
       case "dnd": notif.setDnd(!notif.dnd); break
       case "mic": if (source && source.audio) source.audio.muted = !source.audio.muted; break

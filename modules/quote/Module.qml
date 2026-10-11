@@ -44,8 +44,15 @@ NotchModule {
     DQP.QuoteCard {
       readonly property bool deskShown: qmod.quote !== null || editing
       property bool deskVertical: false          // turned 90°: vertical writing, upright
+      property var deskStyle: ({})
       quote: qmod.quote
-      cfg: deskVertical ? qmod.verticalCfg : qmod.cfg
+      // the shared Style's background opacity wins over the quote's own setting
+      cfg: {
+        var c = {}, src = deskVertical ? qmod.verticalCfg : qmod.cfg
+        for (var k in src) c[k] = src[k]
+        if (deskStyle && deskStyle.bgOpacity !== undefined) c.backgroundOpacity = deskStyle.bgOpacity
+        return c
+      }
       s: qmod.cfg.scale
     }
   }

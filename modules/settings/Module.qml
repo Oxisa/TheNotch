@@ -1,14 +1,16 @@
 import QtQuick
 import "../.."
 
-// TheNotch's own settings — a section of the settings window, not a
-// dashboard: edge, the Omarchy bar, colour, language, which events to show.
+// TheNotch's own settings, split over the settings window: the language
+// here (System); the notch's place and look (notchlook, Personalisation);
+// which events show (notifications, System).
 NotchModule {
   id: mod
-  title: notch && notch.lang === "ru" ? "Основные" : "General"
-  icon: "\u{f0493}"
+  title: notch && notch.lang === "ru" ? "Язык" : "Language"
+  icon: "\u{f05ca}"
   inRail: false
   core: true
   sectionOrder: 0
-  settingsPage: Component { SettingsPage { notch: mod.notch } }
+  settingsSection: "system"
+  settingsPage: Component { SettingsPage { notch: mod.notch; part: "system" } }
 }

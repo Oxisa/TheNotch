@@ -39,6 +39,8 @@ Column {
             required property var modelData
             agentData: modelData
             ru: page.mod ? page.mod.ru : true
+            showLogo: page.mod ? page.mod.opt("logo", true) !== false : true
+            showName: page.mod ? page.mod.opt("label", true) !== false : true
             size: Style.space(76)
           }
         }

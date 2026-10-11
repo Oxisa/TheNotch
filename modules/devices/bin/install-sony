@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Install the Sony headphones daemon for TheNotch without root: mdrctl/mdrctld
+# from delarosa1312/omarchy-sony-xm5 (MIT) over libmdr from
+# mos9527/SonyHeadphonesClient (MIT), built here with plain make (no ninja
+# needed), into ~/.local/share/thenotch/mdrctl, run as a user service.
+# The versions are the ones that project's PKGBUILD pins.
+set -euo pipefail
+TAG=v1.1.5
+MDR=965c458116d40827494726447de5f07eb50efcb8
+DEST="$HOME/.local/share/thenotch/mdrctl"
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+
+git clone -q --depth 1 --branch "$TAG" https://github.com/delarosa1312/omarchy-sony-xm5.git "$WORK/xm5"
+git clone -q https://github.com/mos9527/SonyHeadphonesClient.git "$WORK/mdr"
+git -C "$WORK/mdr" checkout -q "$MDR"
+git -C "$WORK/mdr" submodule update -q --init --recursive 2>/dev/null || true
+
+cmake -S "$WORK/mdr" -B "$WORK/build" -G "Unix Makefiles" \
+  -DCMAKE_BUILD_TYPE=Release -DMDR_BUILD_CLIENT=OFF -DCMAKE_SKIP_RPATH=ON -DBUILD_SHARED_LIBS=ON >/dev/null
+# one job: two targets generate the same sources and race each other in parallel
+cmake --build "$WORK/build" -j1 >/dev/null
+
+mkdir -p "$DEST/bin" "$DEST/lib"
+install -m755 "$WORK/build/libmdr/src/libmdr-shared.so" "$DEST/lib/libmdr-shared.so"
+install -m755 "$WORK/build/libmdr-bt/src/libmdr-bt-shared.so" "$DEST/lib/libmdr-bt-shared.so"
+install -m644 "$WORK/xm5/daemon/lib/mdr.py" "$DEST/lib/mdr.py"
+install -m755 "$WORK/xm5/daemon/bin/mdrctl" "$DEST/bin/mdrctl"
+install -m755 "$WORK/xm5/daemon/bin/mdrctld" "$DEST/bin/mdrctld"
+install -m644 "$WORK/xm5/LICENSE" "$DEST/LICENSE"
+
+mkdir -p "$HOME/.config/systemd/user"
+sed -e "s|@PYTHON@|/usr/bin/python3|" -e "s|@MDRCTLD@|$DEST/bin/mdrctld|" -e "s|@ARGS@|--build-dir $DEST/lib|" \
+  "$WORK/xm5/daemon/systemd-user/mdrctld.service" > "$HOME/.config/systemd/user/mdrctld.service"
+systemctl --user daemon-reload
+systemctl --user enable --now mdrctld >/dev/null 2>&1
+systemctl --user enable --now mpris-proxy >/dev/null 2>&1 || true
+echo '{"ok":true}'

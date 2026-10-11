@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+"""Logitech mice through Solaar (HID++): battery, DPI, SmartShift, the wheel
+and the thumb wheel.
+
+  state               the online Logitech device(s) and their settings
+  set NAME KEY VALUE  change one (solaar config)
+
+Solaar is slow (a few seconds a call), so `state` also writes a cache that the
+shell reads first. Every command prints one JSON object.
+"""
+import json, os, re, subprocess, sys
+from pathlib import Path
+
+CACHE = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp") / "thenotch-mouse.json"
+KEYS = ["dpi", "smart-shift", "scroll-ratchet", "hires-smooth-invert", "hires-smooth-resolution", "thumb-scroll-invert"]
+
+
+def run(args, timeout=30):
+    r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    return r.returncode, r.stdout, r.stderr
+
+
+def out(obj):
+    print(json.dumps(obj, ensure_ascii=False))
+    return 0 if obj.get("ok", True) else 1
+
+
+def online():
+    """Names of devices that are online, with their battery."""
+    _, o, _ = run(["solaar", "show"])
+    devs, cur = [], None
+    for line in o.splitlines():
+        m = re.match(r"^\s{2}\d+: (.+?)\s*$", line)
+        if m:
+            cur = {"name": m.group(1), "online": True, "battery": None, "charging": False}
+            devs.append(cur); continue
+        if cur is None:
+            continue
+        if "Device is offline" in line:
+            cur["online"] = False
+        b = re.search(r"Battery: (\d+)%, BatteryStatus\.(\w+)", line)
+        if b and cur["battery"] is None:
+            cur["battery"] = int(b.group(1)); cur["charging"] = b.group(2) == "RECHARGING"
+    return [d for d in devs if d["online"]]
+
+
+def config(name):
+    _, o, _ = run(["solaar", "config", name])
+    vals, choices, key_doc = {}, {}, None
+    for line in o.splitlines():
+        m = re.match(r"^#\s+possible values: one of \[ (.*) \]", line)
+        if m:
+            key_doc = [x.strip() for x in m.group(1).split(",")]
+            continue
+        m = re.match(r"^([a-z0-9-]+) = (.*)$", line)
+        if m:
+            k, v = m.group(1), m.group(2).strip()
+            if k in KEYS:
+                vals[k] = True if v == "True" else False if v == "False" else int(v) if re.fullmatch(r"-?\d+", v) else v
+                if key_doc:
+                    choices[k] = key_doc
+            key_doc = None
+    return vals, choices
+
+
+def state():
+    res = []
+    for d in online():
+        vals, choices = config(d["name"])
+        d.update({"settings": vals, "choices": choices})
+        res.append(d)
+    obj = {"ok": True, "devices": res}
+    CACHE.write_text(json.dumps(obj))
+    return out(obj)
+
+
+def main():
+    a = sys.argv[1:]
+    if not a or a[0] == "state":
+        return state()
+    if a[0] == "set" and len(a) > 3 and a[2] in KEYS:
+        code, o, e = run(["solaar", "config", a[1], a[2], a[3]])
+        ok = code == 0 and "error" not in e.lower()
+        return out({"ok": ok, "error": "" if ok else e.strip().splitlines()[-1] if e.strip() else "failed"})
+    print(__doc__, file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

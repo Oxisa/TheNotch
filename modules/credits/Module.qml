@@ -10,5 +10,6 @@ NotchModule {
   inRail: false
   core: true
   sectionOrder: 95
+  settingsSection: "about"
   settingsPage: Component { CreditsPage { ru: cr.notch !== null && cr.notch.lang === "ru" } }
 }

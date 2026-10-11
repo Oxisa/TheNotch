@@ -43,16 +43,6 @@ Column {
           onReleased: function(v) { page.mod.set("scale", v) }
         }
       }
-      SH.HubRow {
-        title: page.mod ? page.mod.t("background") : ""; fg: page.fg; fontFamily: page.ff
-        SH.HubSlider {
-          width: Style.space(170)
-          minimum: 0; maximum: 0.85; step: 0.05
-          value: page.mod ? page.mod.cfg.backgroundOpacity : 0.4
-          fillColor: page.accent; fontFamily: page.ff
-          onReleased: function(v) { page.mod.set("backgroundOpacity", v) }
-        }
-      }
       Row {
         spacing: Style.space(6)
         SH.HubChip {

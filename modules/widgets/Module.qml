@@ -11,5 +11,6 @@ NotchModule {
   inRail: false
   core: true
   sectionOrder: 2
+  settingsSection: "personal"
   settingsPage: Component { WidgetsPage { notch: wm.notch } }
 }

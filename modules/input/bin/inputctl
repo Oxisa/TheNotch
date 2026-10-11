@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""Input backend for TheNotch: mouse, touchpad and key repeat (Hyprland),
+the keyboard layouts (read only — Omalang owns them) and the key bindings.
+
+  state                  current values, layouts, devices, bindings
+  set KEY VALUE          apply now (hyprctl eval) and keep it in
+                         ~/.config/hypr/input.lua between
+                         "-- BEGIN thenotch-input" and "-- END thenotch-input"
+
+  layouts                every XKB layout with its name
+  setlayouts us,ru,de    the keyboard layouts, in order (the first is the default):
+                         edits only the kb_layout line of input.lua (a copy is
+                         kept as input.lua.thenotch-bak) and applies it now
+
+KEY: sensitivity (-1..1), accel_profile (adaptive|flat), natural_scroll,
+repeat_rate, repeat_delay, touchpad.natural_scroll,
+touchpad.disable_while_typing, touchpad.tap-to-click (true|false or numbers).
+Every command prints one JSON object.
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+HOME = Path.home()
+CONF = HOME / ".config/hypr/input.lua"
+STATE = HOME / ".config/thenotch/input.json"
+BEGIN, END = "-- BEGIN thenotch-input", "-- END thenotch-input"
+KEYS = {"sensitivity": float, "accel_profile": str, "natural_scroll": bool, "repeat_rate": int, "repeat_delay": int,
+        "touchpad.natural_scroll": bool, "touchpad.disable_while_typing": bool, "touchpad.tap-to-click": bool}
+MODS = [(64, "SUPER"), (4, "CTRL"), (8, "ALT"), (1, "SHIFT")]
+
+
+def run(args):
+    r = subprocess.run(args, capture_output=True, text=True, timeout=8)
+    return r.stdout
+
+
+def out(obj):
+    print(json.dumps(obj, ensure_ascii=False))
+    return 0 if obj.get("ok", True) else 1
+
+
+def option(name):
+    o = run(["hyprctl", "getoption", "input:" + name.replace(".", ":"), "-j"])
+    try:
+        d = json.loads(o)
+    except ValueError:
+        return None
+    for k in ("bool", "float", "int", "str"):
+        if k in d:
+            v = d[k]
+            return None if v == "[[EMPTY]]" else v
+    return None
+
+
+def lua(v):
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return repr(v)
+    return json.dumps(str(v))
+
+
+def table(values):
+    """{"sensitivity": 0.2, "touchpad.natural_scroll": True} → Lua input table."""
+    top, pad = [], []
+    for k, v in values.items():
+        if k.startswith("touchpad."):
+            name = k.split(".", 1)[1]
+            pad.append((f'["{name}"]' if "-" in name else name) + " = " + lua(v))
+        else:
+            top.append(f"{k} = {lua(v)}")
+    if pad:
+        top.append("touchpad = { " + ", ".join(pad) + " }")
+    return "{ " + ", ".join(top) + " }"
+
+
+def persist(values):
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    STATE.write_text(json.dumps(values, indent=2))
+    text = CONF.read_text() if CONF.exists() else ""
+    block = f"{BEGIN}\n-- Written by TheNotch (Settings → Input). Edit there, or delete this block.\nhl.config({{ input = {table(values)} }})\n{END}\n"
+    if BEGIN in text and END in text:
+        text = re.sub(re.escape(BEGIN) + r".*?" + re.escape(END) + r"\n?", block, text, flags=re.S)
+    else:
+        text = text.rstrip("\n") + "\n\n" + block
+    tmp = CONF.with_suffix(".lua.tmp")
+    tmp.write_text(text)
+    tmp.replace(CONF)
+
+
+def binds():
+    try:
+        bs = json.loads(run(["hyprctl", "binds", "-j"]))
+    except ValueError:
+        return []
+    # number-row keys are often bound by keycode (layout-independent)
+    codes = {10 + i: str((i + 1) % 10) for i in range(10)}
+    codes.update({20: "MINUS", 21: "EQUAL", 49: "GRAVE", 34: "BRACKETLEFT", 35: "BRACKETRIGHT"})
+    res = []
+    for b in bs:
+        key = b.get("key") or codes.get(b.get("keycode", 0), "")
+        m = None if key else re.search(r"workspace (\d+)$", b.get("description", ""))
+        if m:                     # Lua binds on the number row come without a key name
+            key = str(int(m.group(1)) % 10)
+        if b.get("submap") or not key:
+            continue
+        mods = [n for bit, n in MODS if b.get("modmask", 0) & bit]
+        name = key.upper() if not key.startswith(("XF86", "mouse", "switch")) else key
+        res.append({"keys": " + ".join(mods + [name]), "key": name, "mods": mods,
+                    "what": b.get("description") or (b.get("dispatcher", "") + " " + str(b.get("arg", ""))).strip(),
+                    "mouse": b.get("mouse", False)})
+    return res
+
+
+def state():
+    try:
+        saved = json.loads(STATE.read_text())
+    except (OSError, ValueError):
+        saved = {}
+    vals = {k: option(k) for k in KEYS}
+    for k in ("natural_scroll", "touchpad.natural_scroll", "touchpad.disable_while_typing", "touchpad.tap-to-click"):
+        if vals[k] is not None:
+            vals[k] = bool(vals[k])
+    dev = {}
+    try:
+        dev = json.loads(run(["hyprctl", "devices", "-j"]))
+    except ValueError:
+        pass
+    mice = sorted({m["name"] for m in dev.get("mice", []) if not re.search(r"consumer|system-control|keyboard$", m["name"])})
+    kbs = [k for k in dev.get("keyboards", []) if k.get("main")] or dev.get("keyboards", [])[:1]
+    return out({"ok": True, "values": vals, "saved": saved,
+                "layouts": [x for x in (option("kb_layout") or "").split(",") if x],
+                "activeLayout": kbs[0]["active_keymap"] if kbs else "",
+                "touchpad": any("touchpad" in m["name"].lower() for m in dev.get("mice", [])),
+                "mice": mice, "binds": binds()})
+
+
+def set_value(key, raw):
+    if key not in KEYS:
+        return out({"ok": False, "error": "unknown setting"})
+    t = KEYS[key]
+    try:
+        v = (raw in ("true", "1", "yes")) if t is bool else t(raw)
+    except ValueError:
+        return out({"ok": False, "error": "bad value"})
+    if key == "accel_profile" and v not in ("adaptive", "flat"):
+        return out({"ok": False, "error": "bad value"})
+    r = subprocess.run(["hyprctl", "eval", f"hl.config({{ input = {table({key: v})} }})"], capture_output=True, text=True)
+    try:
+        saved = json.loads(STATE.read_text())
+    except (OSError, ValueError):
+        saved = {}
+    saved[key] = v
+    persist(saved)
+    return out({"ok": r.returncode == 0, "error": r.stderr.strip()})
+
+
+def all_layouts():
+    res, on = [], False
+    for line in Path("/usr/share/X11/xkb/rules/base.lst").read_text().splitlines():
+        if line.startswith("! layout"):
+            on = True; continue
+        if line.startswith("!"):
+            on = False
+        if on and line.strip():
+            code, _, name = line.strip().partition(" ")
+            res.append({"code": code, "name": name.strip()})
+    return out({"ok": True, "layouts": res})
+
+
+def set_layouts(value):
+    codes = [c for c in value.split(",") if c]
+    if not codes or not all(re.fullmatch(r"[a-z]{2,8}", c) for c in codes):
+        return out({"ok": False, "error": "bad layouts"})
+    text = CONF.read_text()
+    new, n = re.subn(r'(kb_layout\s*=\s*)"[^"]*"', lambda m: m.group(1) + json.dumps(",".join(codes)), text, count=1)
+    if n != 1:
+        return out({"ok": False, "error": "kb_layout line not found in input.lua"})
+    CONF.with_name("input.lua.thenotch-bak").write_text(text)
+    tmp = CONF.with_suffix(".lua.tmp")
+    tmp.write_text(new)
+    tmp.replace(CONF)
+    if "kb_layout" not in CONF.read_text():                       # never leave it emptied
+        CONF.write_text(text)
+        return out({"ok": False, "error": "write failed; restored"})
+    r = subprocess.run(["hyprctl", "eval", f'hl.config({{ input = {{ kb_layout = {json.dumps(",".join(codes))} }} }})'],
+                       capture_output=True, text=True)
+    return out({"ok": r.returncode == 0, "error": r.stderr.strip()})
+
+
+def main():
+    a = sys.argv[1:]
+    if not a or a[0] == "state":
+        return state()
+    if a[0] == "layouts":
+        return all_layouts()
+    if a[0] == "setlayouts" and len(a) > 1:
+        return set_layouts(a[1])
+    if a[0] == "set" and len(a) > 2:
+        return set_value(a[1], a[2])
+    print(__doc__, file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Set the account picture: crop the image to a centred square, 512 px, and
+# save it as ~/.face (the file desktops and lock screens read). The previous
+# one is kept as ~/.face.prev. With "pick", ask for the file first.
+#   avatar pick | avatar set FILE | avatar undo
+set -euo pipefail
+face="$HOME/.face"
+case "${1:-}" in
+  pick) file=$(omarchy-file-select --title "Account picture" --extensions "png jpg jpeg webp heic gif") || exit 0 ;;
+  set) file="${2:-}" ;;
+  undo) [[ -f "$face.prev" ]] && cp -f "$face.prev" "$face"; echo '{"ok":true}'; exit 0 ;;
+  *) echo "usage: avatar pick | set FILE | undo" >&2; exit 1 ;;
+esac
+[[ -f "$file" ]] || { echo '{"ok":false,"error":"no file"}'; exit 1; }
+[[ -f "$face" ]] && cp -f "$face" "$face.prev"
+tmp=$(mktemp --suffix=.png)
+magick "$file[0]" -auto-orient -gravity center -resize 512x512^ -extent 512x512 "$tmp"
+mv -f "$tmp" "$face"
+chmod 644 "$face"
+printf '{"ok":true,"path":"%s"}\n' "$face"

@@ -196,12 +196,18 @@ Item {
   // the settings window: sections from every module with a settingsPage
   property bool settingsOpen: false
   property string settingsSection: "settings"
+  // id: a section ("network") or a module ("weather" → its section, scrolled to it)
+  property string settingsFocus: ""
   function openSettings(id) {
     var m = moduleById(id)
-    settingsSection = m && m.settingsPage ? id : "settings"
+    if (m && m.settingsPage) { settingsSection = m.settingsSection; settingsFocus = id }
+    else { settingsSection = id || "system"; settingsFocus = "" }
     expanded = false; hovered = false
     settingsOpen = true
   }
+  // "Basic / Advanced" per section, like a calculator's two modes
+  readonly property var advancedIn: opt("advanced", ({}))
+  function setAdvanced(section, on) { var a = JSON.parse(JSON.stringify(advancedIn)); a[section] = on; persist({ advanced: a }) }
   function openModule(id) {
     var m = moduleById(id)
     if (m && m.topTab) lastTab = id
@@ -321,7 +327,39 @@ Item {
                    defaultPos: d.defaultPos, setEnabled: function(on) { d.toggled(on) }, page: m.widgetPage })
       })(m.deskList[j])
     }
+    // your own widgets (text, command, picture, note), made in the layout editor
+    for (var c = 0; c < customWidgets.length; c++) (function(cw) {
+      out.push({ wid: "custom:" + cw.id, title: cw.title || core.customTitle(cw.type), icon: core.customIcon(cw.type), custom: true,
+                 component: customComp, page: customPage, enabled: cw.enabled !== false, defaultPos: { x: 0.4, y: 0.4 },
+                 setEnabled: function(on) { core.patchCustom(cw.id, { enabled: on }) } })
+    })(customWidgets[c])
     return out
+  }
+  readonly property var customWidgets: opt("customWidgets", [])
+  Component { id: customComp; CustomWidget { notch: core } }
+  Component { id: customPage; CustomPage { notch: core } }
+  function customIcon(type) { return { text: "\u{f0284}", command: "\u{f018d}", image: "\u{f02e9}", note: "\u{f039b}" }[type] || "\u{f05c6}" }
+  function customTitle(type) {
+    var ru = lang === "ru"
+    return { text: ru ? "Текст" : "Text", command: ru ? "Команда" : "Command", image: ru ? "Картинка" : "Picture", note: ru ? "Заметка" : "Note" }[type] || type
+  }
+  function customById(id) { for (var i = 0; i < customWidgets.length; i++) if (customWidgets[i].id === id) return customWidgets[i]; return null }
+  function patchCustom(id, values) {
+    var l = JSON.parse(JSON.stringify(customWidgets))
+    for (var i = 0; i < l.length; i++) if (l[i].id === id) for (var k in values) l[i][k] = values[k]
+    persist({ customWidgets: l })
+  }
+  function addCustom(type) {
+    var id = type + "-" + Date.now().toString(36)
+    var cfg = { text: { template: "{time}\n{date}", size: 32 }, command: { command: "uptime -p", interval: 30, size: 14 },
+                image: { path: "", width: 260, radius: 16 }, note: { text: lang === "ru" ? "Заметка" : "A note", size: 16 } }[type]
+    persist({ customWidgets: customWidgets.concat([{ id: id, type: type, enabled: true, cfg: cfg }]) })
+    return "custom:" + id
+  }
+  function removeCustom(id) {
+    var l = layout && JSON.parse(JSON.stringify(layout))
+    delete l["custom:" + id]
+    persist({ customWidgets: customWidgets.filter(function(c) { return c.id !== id }), layout: l })
   }
   function deskItem(wid) { for (var i = 0; i < deskItems.length; i++) if (deskItems[i].wid === wid) return deskItems[i]; return null }
   readonly property var layout: opt("layout", ({}))
@@ -376,6 +414,15 @@ Item {
   // rotation (degrees) and lock live next to the position
   function setRot(id, screen, deg) { patchPlace(id, screen, { rot: Math.round(deg) }) }
   function setLock(id, screen, on) { patchPlace(id, screen, { lock: on }) }
+  // each widget's look (DeskStyle.js), the same on every monitor
+  readonly property var widgetStyles: opt("widgetStyle", ({}))
+  function styleOf(id) { return widgetStyles[id] || ({}) }
+  function setStyle(id, values) {
+    var all = JSON.parse(JSON.stringify(widgetStyles)), st = all[id] || {}
+    for (var k in values) { if (values[k] === null) delete st[k]; else st[k] = values[k] }
+    all[id] = st
+    persist({ widgetStyle: all })
+  }
   function patchPlace(id, screen, values) {
     var l = JSON.parse(JSON.stringify(layout))
     if (!l[id]) l[id] = {}
@@ -406,7 +453,8 @@ Item {
     return out
   }
   property bool editingLayout: false
-  function editLayout(on) { editingLayout = on; if (on) { expanded = false; settingsOpen = false } }
+  property string layoutPick: ""              // the widget whose panel is open in the layout editor
+  function editLayout(on) { editingLayout = on; layoutPick = ""; if (on) { expanded = false; settingsOpen = false } }
   Variants {
     model: core.editingLayout ? [] : core.placements
     delegate: WidgetWindow {

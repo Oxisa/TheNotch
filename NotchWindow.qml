@@ -153,9 +153,6 @@ PanelWindow {
     MouseArea {
       anchors.fill: parent
       onClicked: win.mode === "event" ? win.notch.clickEvent() : win.notch.expand()
-      onWheel: function(w) {
-        Quickshell.execDetached(["omarchy-audio-output-volume", w.angleDelta.y > 0 ? "raise" : "lower"])
-      }
     }
     HoverHandler { onHoveredChanged: win.notch.setPointerInside(hovered) }
 

@@ -4,12 +4,16 @@ import Quickshell
 import Quickshell.Wayland
 import qs.Commons
 import "../osia.soundhub" as SH
+import "Sections.js" as Sections
 
-// TheNotch's settings window: one card in the middle of the focused screen
-// over a dimmed desktop. Sections on the left — TheNotch itself and every
-// module that has a settingsPage — and the chosen section's settings on the
-// right, so the notch's dashboards stay free of settings.
-// Esc, the × or a click on the dimmed area closes it.
+// TheNotch's settings window, organised like Windows Settings: fixed
+// sections on the left (System, Network & internet, Bluetooth & devices,
+// Displays, Sound, Input, Personalisation, Account, Apps, Modules, Omarchy
+// plugins, About). Modules don't get sections of their own — each puts its
+// settings into one of them (`settingsSection`); a section with several
+// parts shows them as tabs, one at a time. A part that declares `advanced`
+// gets the section's Basic / Advanced switch, like a calculator's two modes.
+// Esc, the × or a click outside closes it.
 PanelWindow {
   id: win
   property var notch: null
@@ -18,11 +22,32 @@ PanelWindow {
   readonly property color accent: Color.accent
   readonly property color bgc: Color.background
   readonly property string ff: Style.font.family
-  readonly property var sections: notch ? notch.settingsModules : []
+  readonly property bool ru: notch !== null && notch.lang === "ru"
+
+  function partsOf(id) {
+    var ms = notch ? notch.settingsModules : []
+    return ms.filter(function(m) { return m.settingsSection === id })
+             .sort(function(a, b) { return a.sectionOrder - b.sectionOrder })
+  }
+  readonly property var sections: Sections.SECTIONS.filter(function(s) { return win.partsOf(s.id).length > 0 })
   readonly property var current: {
-    for (var i = 0; i < sections.length; i++) if (sections[i].moduleId === notch.settingsSection) return sections[i]
+    var want = notch ? notch.settingsSection : ""
+    for (var i = 0; i < sections.length; i++) if (sections[i].id === want) return sections[i]
     return sections.length ? sections[0] : null
   }
+  readonly property var parts: current ? partsOf(current.id) : []
+  // the open tab in a section with several parts (by module id)
+  property var tabOf: ({})
+  readonly property var part: {
+    if (!parts.length) return null
+    var want = notch && notch.settingsFocus ? notch.settingsFocus : (current ? tabOf[current.id] : "")
+    for (var i = 0; i < parts.length; i++) if (parts[i].moduleId === want) return parts[i]
+    return parts[0]
+  }
+  function openTab(m) { var o = Object.assign({}, tabOf); o[current.id] = m.moduleId; tabOf = o; if (notch) notch.settingsFocus = "" }
+  readonly property bool advanced: notch !== null && current !== null && notch.advancedIn[current.id] === true
+  // does anything in this section have an Advanced mode?
+  property bool hasAdvanced: false
 
   color: "transparent"
   anchors { top: true; bottom: true; left: true; right: true }
@@ -32,38 +57,24 @@ PanelWindow {
   WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
 
   function close() { if (notch) notch.settingsOpen = false }
-  readonly property bool ru: notch !== null && notch.lang === "ru"
+  function title(s) { return ru ? s.ru : s.en }
 
-  // a switched-off module's section: say so, offer to switch it on
-  Component {
-    id: offPage
-    Column {
-      spacing: Style.space(14)
-      topPadding: Style.space(30)
-      Text {
-        width: parent.width
-        horizontalAlignment: Text.AlignHCenter
-        text: win.current ? win.current.icon : ""
-        color: Qt.darker(win.fg, 1.8)
-        font.family: win.ff; font.pixelSize: Style.space(40)
-      }
-      Text {
-        width: parent.width
-        horizontalAlignment: Text.AlignHCenter
-        wrapMode: Text.Wrap
-        text: win.ru ? "Модуль выключен. Включите его, чтобы настроить."
-                     : "This module is off. Turn it on to set it up."
-        color: Qt.darker(win.fg, 1.4)
-        font.family: win.ff; font.pixelSize: Style.font.body
-      }
-      SH.HubChip {
-        anchors.horizontalCenter: parent.horizontalCenter
-        icon: "\u{f0425}"
-        label: win.ru ? "Включить модуль" : "Turn the module on"
-        on: true
-        fg: win.fg; accent: win.accent; ink: win.bgc; fontFamily: win.ff
-        onClicked: win.notch.setModuleEnabled(win.current.moduleId, true)
-      }
+  // a switched-off module's part: say so, offer to switch it on
+  component OffPart: Row {
+    property var module: null
+    spacing: Style.space(12)
+    Text {
+      anchors.verticalCenter: parent.verticalCenter
+      text: win.ru ? "Модуль выключен." : "This module is off."
+      color: Qt.darker(win.fg, 1.4)
+      font.family: win.ff; font.pixelSize: Style.font.body
+    }
+    SH.HubChip {
+      icon: "\u{f0425}"
+      label: win.ru ? "Включить" : "Turn on"
+      on: true
+      fg: win.fg; accent: win.accent; ink: win.bgc; fontFamily: win.ff
+      onClicked: win.notch.setModuleEnabled(parent.module.moduleId, true)
     }
   }
 
@@ -80,8 +91,8 @@ PanelWindow {
   Rectangle {
     id: card
     anchors.centerIn: parent
-    width: Math.min(parent.width - Style.space(60), Style.space(820))
-    height: Math.min(parent.height - Style.space(80), Style.space(600))
+    width: Math.min(parent.width - Style.space(60), Style.space(1000))
+    height: Math.min(parent.height - Style.space(80), Style.space(700))
     radius: SH.HubStyle.radius + Style.space(6)
     color: win.bgc
     border.width: 1
@@ -94,62 +105,67 @@ PanelWindow {
 
     focus: true
     Keys.onEscapePressed: win.close()
-    Component.onDestruction: {}
 
     // ------------------------------------------------------ sidebar
     Rectangle {
       id: side
       x: Style.space(10); y: Style.space(10)
-      width: Style.space(210); height: parent.height - Style.space(20)
+      width: Style.space(236); height: parent.height - Style.space(20)
       radius: SH.HubStyle.radius
       color: SH.HubStyle.tint(win.fg, SH.HubStyle.surface)
 
-      Column {
-        x: Style.space(10); y: Style.space(14)
-        width: parent.width - Style.space(20)
-        spacing: Style.space(4)
-
-        Text {
-          leftPadding: Style.space(8); bottomPadding: Style.space(10)
-          text: "󰒓  " + (win.notch ? win.notch.t("settingsTitle") : "")
-          color: win.fg
-          font.family: win.ff; font.pixelSize: Style.font.title; font.bold: true
-        }
-        Repeater {
-          model: win.sections
-          delegate: Rectangle {
-            id: item
-            required property var modelData
-            readonly property bool on: win.current === modelData
-            width: parent.width
-            height: Style.space(38)
-            radius: height / 2
-            color: on ? win.accent : SH.HubStyle.tint(win.fg, itemMouse.containsMouse ? SH.HubStyle.controlHover : 0)
-            opacity: item.modelData.active ? 1 : 0.5            // a switched-off module
-            Behavior on color { ColorAnimation { duration: 160 } }
-            Row {
-              anchors.verticalCenter: parent.verticalCenter
-              x: Style.space(14)
-              spacing: Style.space(10)
-              Text {
+      Flickable {
+        anchors.fill: parent
+        anchors.margins: Style.space(10)
+        contentHeight: sideCol.implicitHeight
+        clip: true
+        interactive: contentHeight > height
+        boundsBehavior: Flickable.StopAtBounds
+        Column {
+          id: sideCol
+          width: parent.width
+          spacing: Style.space(3)
+          Text {
+            leftPadding: Style.space(8); topPadding: Style.space(4); bottomPadding: Style.space(10)
+            text: "󰒓  " + (win.notch ? win.notch.t("settingsTitle") : "")
+            color: win.fg
+            font.family: win.ff; font.pixelSize: Style.font.title; font.bold: true
+          }
+          Repeater {
+            model: win.sections
+            delegate: Rectangle {
+              id: item
+              required property var modelData
+              readonly property bool on: win.current === modelData
+              width: parent.width
+              height: Style.space(38)
+              radius: height / 2
+              color: on ? win.accent : SH.HubStyle.tint(win.fg, itemMouse.containsMouse ? SH.HubStyle.controlHover : 0)
+              Behavior on color { ColorAnimation { duration: 160 } }
+              Row {
                 anchors.verticalCenter: parent.verticalCenter
-                text: item.modelData.icon
-                color: item.on ? win.bgc : win.fg
-                font.family: win.ff; font.pixelSize: Style.font.body + 1
+                x: Style.space(14)
+                spacing: Style.space(10)
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: item.modelData.icon
+                  color: item.on ? win.bgc : win.fg
+                  font.family: win.ff; font.pixelSize: Style.font.body + 1
+                }
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: win.title(item.modelData)
+                  color: item.on ? win.bgc : win.fg
+                  font.family: win.ff; font.pixelSize: Style.font.body; font.bold: item.on
+                }
               }
-              Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: item.modelData.title
-                color: item.on ? win.bgc : win.fg
-                font.family: win.ff; font.pixelSize: Style.font.body; font.bold: item.on
+              MouseArea {
+                id: itemMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: { win.notch.settingsSection = item.modelData.id; win.notch.settingsFocus = "" }
               }
-            }
-            MouseArea {
-              id: itemMouse
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: win.notch.settingsSection = item.modelData.moduleId
             }
           }
         }
@@ -159,44 +175,129 @@ PanelWindow {
     // ------------------------------------------------------ content
     Item {
       id: main
-      anchors.left: side.right; anchors.leftMargin: Style.space(16)
+      anchors.left: side.right; anchors.leftMargin: Style.space(18)
       anchors.right: parent.right; anchors.rightMargin: Style.space(16)
       anchors.top: parent.top; anchors.topMargin: Style.space(16)
       anchors.bottom: parent.bottom; anchors.bottomMargin: Style.space(12)
 
       Text {
         id: heading
-        text: win.current ? win.current.title : ""
+        text: win.current ? win.title(win.current) : ""
         color: win.fg
         font.family: win.ff; font.pixelSize: Style.font.title + 2; font.bold: true
       }
-      SH.HubChip {
+      Row {
         anchors.right: parent.right
         anchors.verticalCenter: heading.verticalCenter
-        iconOnly: true
-        icon: "󰅖"
-        label: "Esc"
-        fg: win.fg; accent: win.accent; fontFamily: win.ff
-        onClicked: win.close()
+        spacing: Style.space(10)
+        // Basic / Advanced for this section
+        Rectangle {
+          visible: win.hasAdvanced
+          anchors.verticalCenter: parent.verticalCenter
+          height: Style.space(30)
+          width: modeRow.implicitWidth + Style.space(8)
+          radius: height / 2
+          color: SH.HubStyle.tint(win.fg, SH.HubStyle.surface)
+          Row {
+            id: modeRow
+            anchors.centerIn: parent
+            Repeater {
+              model: [{ adv: false, label: win.ru ? "Обычный" : "Basic" }, { adv: true, label: win.ru ? "Расширенный" : "Advanced" }]
+              delegate: Rectangle {
+                required property var modelData
+                readonly property bool on: win.advanced === modelData.adv
+                height: Style.space(24); width: ml.implicitWidth + Style.space(22); radius: height / 2
+                color: on ? win.accent : "transparent"
+                Text { id: ml; anchors.centerIn: parent; text: modelData.label; color: parent.on ? win.bgc : win.fg; font.family: win.ff; font.pixelSize: Style.font.caption; font.bold: parent.on }
+                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: win.notch.setAdvanced(win.current.id, modelData.adv) }
+              }
+            }
+          }
+        }
+        SH.HubChip {
+          anchors.verticalCenter: parent.verticalCenter
+          iconOnly: true
+          icon: "󰅖"
+          label: "Esc"
+          fg: win.fg; accent: win.accent; fontFamily: win.ff
+          onClicked: win.close()
+        }
+      }
+
+      // the parts of this section as tabs
+      Flickable {
+        id: tabsBar
+        visible: win.parts.length > 1
+        anchors.top: heading.bottom; anchors.topMargin: Style.space(14)
+        anchors.left: parent.left; anchors.right: parent.right
+        height: visible ? Style.space(34) : 0
+        contentWidth: tabsRow.implicitWidth
+        clip: true
+        interactive: contentWidth > width
+        boundsBehavior: Flickable.StopAtBounds
+        Row {
+          id: tabsRow
+          spacing: Style.space(6)
+          Repeater {
+            model: win.parts
+            delegate: Rectangle {
+              id: tb
+              required property var modelData
+              readonly property bool on: win.part === modelData
+              height: Style.space(32)
+              width: tbRow.implicitWidth + Style.space(26)
+              radius: height / 2
+              color: on ? win.accent : SH.HubStyle.tint(win.fg, tbm.containsMouse ? 0.10 : 0.05)
+              opacity: modelData.active ? 1 : 0.55
+              Behavior on color { ColorAnimation { duration: 140 } }
+              Row {
+                id: tbRow
+                anchors.centerIn: parent
+                spacing: Style.space(7)
+                Text { anchors.verticalCenter: parent.verticalCenter; text: tb.modelData.icon; color: tb.on ? win.bgc : win.accent; font.family: win.ff; font.pixelSize: Style.font.body }
+                Text { anchors.verticalCenter: parent.verticalCenter; text: tb.modelData.title; color: tb.on ? win.bgc : win.fg; font.family: win.ff; font.pixelSize: Style.font.body; font.bold: tb.on }
+              }
+              MouseArea { id: tbm; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: win.openTab(tb.modelData) }
+            }
+          }
+        }
       }
 
       Flickable {
         id: flick
-        anchors.top: heading.bottom; anchors.topMargin: Style.space(14)
+        anchors.top: tabsBar.visible ? tabsBar.bottom : heading.bottom; anchors.topMargin: Style.space(16)
         anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
         contentWidth: width
-        contentHeight: pageLoader.item ? pageLoader.item.implicitHeight + Style.space(8) : 0
+        contentHeight: partCol.implicitHeight + Style.space(8)
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         interactive: contentHeight > height
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-        Loader {
-          id: pageLoader
+        Column {
+          id: partCol
           width: flick.width - Style.space(10)
-          sourceComponent: !win.current ? null : win.current.active ? win.current.settingsPage : offPage
-          onLoaded: flick.contentY = 0
+          spacing: Style.space(12)
+          Text {
+            visible: !!(win.part && win.part.description) && win.parts.length > 1
+            width: parent.width; wrapMode: Text.Wrap
+            text: win.part ? win.part.description : ""
+            color: Qt.darker(win.fg, 1.5); font.family: win.ff; font.pixelSize: Style.font.caption
+          }
+          OffPart { visible: !!(win.part && !win.part.active); module: win.part }
+          Loader {
+            id: pl
+            width: parent.width
+            active: !!(win.part && win.part.active)
+            sourceComponent: win.part ? win.part.settingsPage : null
+            onLoaded: {
+              win.hasAdvanced = "advanced" in item
+              if (win.hasAdvanced) item.advanced = Qt.binding(function() { return win.advanced })
+              flick.contentY = 0
+            }
+          }
         }
       }
     }
   }
+  onCurrentChanged: { hasAdvanced = false; flick.contentY = 0 }
 }

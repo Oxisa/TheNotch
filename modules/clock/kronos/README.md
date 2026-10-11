@@ -10,3 +10,6 @@ Changes in this fork:
   one placement timer per screen (upstream shared one, so every monitor but
   the last kept the clock at the top-left corner), click-through windows,
   settings under Settings → Widgets.
+
+- TheNotch: hour and date offsets are clamped to ±300 px (upstream: ±40), so the
+  hour can be moved anywhere inside the clock's block from Settings → Widgets.

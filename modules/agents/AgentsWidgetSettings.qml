@@ -49,13 +49,11 @@ Column {
     }
   }
   SH.HubRow {
-    title: page.t("Фон", "Background"); fg: page.fg; fontFamily: page.ff
-    SH.HubSlider {
-      width: Style.space(176)
-      minimum: 0.2; maximum: 1; step: 0.05
-      value: page.mod ? Number(page.mod.opt("widgetOpacity", 0.85)) : 0.85
-      fillColor: page.accent; fontFamily: page.ff
-      onReleased: function(v) { page.mod.persist({ widgetOpacity: Math.round(v * 100) / 100 }) }
-    }
+    title: page.t("Логотип в кольце", "Logo in the ring"); fg: page.fg; fontFamily: page.ff
+    SH.HubSwitch { checked: page.mod ? page.mod.opt("logo", true) !== false : true; fg: page.fg; accent: page.accent; ink: page.bgc; onToggled: page.mod.persist({ logo: !checked }) }
+  }
+  SH.HubRow {
+    title: page.t("Подпись под кольцом", "Label under the ring"); hint: page.t("Имя и время до сброса", "Name and time to reset"); fg: page.fg; fontFamily: page.ff
+    SH.HubSwitch { checked: page.mod ? page.mod.opt("label", true) !== false : true; fg: page.fg; accent: page.accent; ink: page.bgc; onToggled: page.mod.persist({ label: !checked }) }
   }
 }

@@ -5,6 +5,7 @@ import qs.Commons
 import "../.."
 import "../../../osia.soundhub" as SH
 import "../agents"
+import "../../DeskStyle.js" as DS
 
 // System: CPU, memory and GPU load as a desktop widget — one nested ring
 // each (outer: load; inner: temperature, or video memory for the GPU), the
@@ -83,13 +84,19 @@ NotchModule {
       property bool editing: false
       readonly property bool deskShown: true
       property bool deskVertical: false            // turned 90°: rings in a column
+      property var deskStyle: ({})
+      property real deskScale: 1
       width: Math.max(row.implicitWidth, netLine.visible ? netLine.implicitWidth : 0) + Style.space(32)
       height: row.implicitHeight + (netLine.visible ? netLine.implicitHeight + Style.space(8) : 0) + Style.space(28)
-      radius: SH.HubStyle.radius + Style.space(4)
+      radius: DS.radius(deskStyle, SH.HubStyle.radius + Style.space(4))
+      topLeftRadius: DS.corner(deskStyle, "tl", SH.HubStyle.radius + Style.space(4))
+      topRightRadius: DS.corner(deskStyle, "tr", SH.HubStyle.radius + Style.space(4))
+      bottomLeftRadius: DS.corner(deskStyle, "bl", SH.HubStyle.radius + Style.space(4))
+      bottomRightRadius: DS.corner(deskStyle, "br", SH.HubStyle.radius + Style.space(4))
       readonly property color bg: Color.background
-      color: Qt.rgba(bg.r, bg.g, bg.b, Number(sm.opt("opacity", 0.85)))
+      color: DS.bg(deskStyle, bg, Color.accent, Number(sm.opt("opacity", 0.85)))
       border.width: 1
-      border.color: SH.HubStyle.tint(Color.foreground, 0.08)
+      border.color: DS.border(deskStyle, Color.foreground)
       Grid {
         id: row
         anchors.horizontalCenter: parent.horizontalCenter
@@ -103,7 +110,7 @@ NotchModule {
             agentData: modelData
             sub: modelData.sub || ""
             ru: sm.ru
-            size: Style.space(60)
+            size: Style.space(60) * card.deskScale
           }
         }
       }
@@ -156,16 +163,6 @@ NotchModule {
               sm.persist({ metrics: m })
             }
           }
-        }
-      }
-      SH.HubRow {
-        title: sm.t("Фон", "Background"); fg: Color.foreground; fontFamily: Style.font.family
-        SH.HubSlider {
-          width: Style.space(176)
-          minimum: 0.2; maximum: 1; step: 0.05
-          value: Number(sm.opt("opacity", 0.85))
-          fillColor: Color.accent; fontFamily: Style.font.family
-          onReleased: function(v) { sm.persist({ opacity: Math.round(v * 100) / 100 }) }
         }
       }
     }

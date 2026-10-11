@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import Quickshell
 import Quickshell.Wayland
 
@@ -17,10 +18,14 @@ PanelWindow {
   property real savedH: 0
   property real sc: 1                        // the widget's scale from the layout
 
+  readonly property var style: notch && desk ? notch.styleOf(desk.wid) : ({})
   property bool canVertical: false             // set once the content loads
   readonly property var turn: notch ? notch.turnOf(rot, canVertical) : { vertical: false, rot: rot }
-  readonly property real cw: content.item ? content.item.width * sc : 1
-  readonly property real ch: content.item ? content.item.height * sc : 1
+  // a widget that declares deskScale scales itself (crisp canvases); others are scaled as a whole
+  readonly property bool nativeScale: !!content.item && ("deskScale" in content.item)
+  readonly property real ks: nativeScale ? 1 : sc
+  readonly property real cw: content.item ? content.item.width * ks : 1
+  readonly property real ch: content.item ? content.item.height * ks : 1
   readonly property real rad: turn.rot * Math.PI / 180
   readonly property real bw: Math.abs(cw * Math.cos(rad)) + Math.abs(ch * Math.sin(rad))
   readonly property real bh: Math.abs(cw * Math.sin(rad)) + Math.abs(ch * Math.cos(rad))
@@ -33,9 +38,11 @@ PanelWindow {
   anchors { top: true; left: true }
   readonly property var at: notch && screen ? notch.anchored({ x: posX, y: posY, w: savedW, h: savedH }, bw, bh, screen.width, screen.height)
                                             : { x: posX, y: posY }
-  margins { top: win.at.y; left: win.at.x }
-  implicitWidth: Math.max(1, Math.ceil(bw))
-  implicitHeight: Math.max(1, Math.ceil(bh))
+  // room around the widget for its shadow
+  readonly property real pad: style.shadow === true ? 18 : 0
+  margins { top: Math.max(0, win.at.y - pad); left: Math.max(0, win.at.x - pad) }
+  implicitWidth: Math.max(1, Math.ceil(bw + pad * 2))
+  implicitHeight: Math.max(1, Math.ceil(bh + pad * 2))
 
   readonly property bool shown: content.item ? content.item.deskShown !== false : false
   Region { id: all; item: box }
@@ -49,9 +56,12 @@ PanelWindow {
       id: content
       anchors.centerIn: parent
       rotation: win.turn.rot
-      scale: win.sc
+      scale: win.ks
+      // the shared look: the whole widget's opacity and a soft shadow
+      layer.enabled: win.style.shadow === true
+      layer.effect: MultiEffect { shadowEnabled: true; shadowBlur: 0.8; shadowOpacity: 0.55; shadowVerticalOffset: 4 }
       sourceComponent: win.desk ? win.desk.component : null
-      opacity: win.shown ? 1 : 0
+      opacity: win.shown ? (win.style.opacity !== undefined ? Number(win.style.opacity) : 1) : 0
       Behavior on opacity { NumberAnimation { duration: 300 } }
       onLoaded: { win.canVertical = "deskVertical" in item; win.feed(); adopt.restart() }
     }
@@ -66,6 +76,9 @@ PanelWindow {
     if ("fy" in it) it.fy = (at.y + bh / 2) / sc.height
     if ("editing" in it) it.editing = false
     if ("deskVertical" in it) it.deskVertical = turn.vertical
+    if ("deskStyle" in it) it.deskStyle = Qt.binding(function() { return win.style })
+    if ("deskId" in it) it.deskId = desk.wid
+    if ("deskScale" in it) it.deskScale = Qt.binding(function() { return win.sc })
   }
   onTurnChanged: feed()
   // older layouts saved no size: record it once, so auto-alignment knows the box

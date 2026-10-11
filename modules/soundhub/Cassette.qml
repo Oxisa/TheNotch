@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell.Services.Mpris
 import qs.Commons
 import "../../../osia.soundhub" as SH
+import "../../DeskStyle.js" as DS
 
 // "Now playing" as a cassette: a label with the title and artist, two reels
 // that turn while it plays — tape winds from the left reel to the right one as
@@ -16,8 +17,9 @@ Rectangle {
   readonly property bool hasTrack: player !== null && !!(player.trackTitle || player.trackArtist)
   readonly property bool playing: player !== null && !!player.isPlaying
   readonly property bool deskShown: hasTrack || editing
-  readonly property color fg: Color.foreground
-  readonly property color accent: Color.accent
+  property var deskStyle: ({})
+  readonly property color fg: DS.fg(deskStyle, Color.foreground)
+  readonly property color accent: DS.accent(deskStyle, Color.accent)
   readonly property color bgc: Color.background
   readonly property string ff: Style.font.family
 
@@ -31,10 +33,14 @@ Rectangle {
   function act(name) { if (media) media.runAction(name, false, media.playerKey(player)) }
 
   width: Style.space(360); height: Style.space(228)
-  radius: Style.space(18)
-  color: Qt.rgba(bgc.r, bgc.g, bgc.b, host ? Number(host.opt("deskOpacity", 0.85)) : 0.85)
+  radius: DS.radius(deskStyle, Style.space(18))
+  topLeftRadius: DS.corner(deskStyle, "tl", Style.space(18))
+  topRightRadius: DS.corner(deskStyle, "tr", Style.space(18))
+  bottomLeftRadius: DS.corner(deskStyle, "bl", Style.space(18))
+  bottomRightRadius: DS.corner(deskStyle, "br", Style.space(18))
+  color: DS.bg(deskStyle, bgc, accent, host ? Number(host.opt("deskOpacity", 0.85)) : 0.85)
   border.width: 1
-  border.color: SH.HubStyle.tint(fg, 0.10)
+  border.color: DS.border(deskStyle, Color.foreground)
 
   // screws in the corners
   Repeater {

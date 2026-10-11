@@ -60,7 +60,14 @@ NotchModule {
     return out
   }
   // a colour for the weather, for the looks that tint themselves (full, round, tile)
+  // the theme's accent with a hint of the weather's colour, so the looks
+  // match the theme; "weatherColours" gives the plain weather colours
   function tone(code, day) {
+    var hue = Qt.color(rawTone(code, day))
+    if (opt("weatherColours", false) === true) return hue
+    return Qt.tint(Color.accent, Qt.rgba(hue.r, hue.g, hue.b, 0.3))
+  }
+  function rawTone(code, day) {
     if (code === 0 || code === 1) return day ? "#f2c14e" : "#8fa8d8"
     if (code === 2 || code === 3) return "#9fb0c3"
     if (code === 45 || code === 48) return "#a3a3a3"

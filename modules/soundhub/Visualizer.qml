@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
 import "../../../osia.soundhub" as SH
+import "../../DeskStyle.js" as DS
 
 // The music spectrum as a desktop widget, from SoundHub's one shared cava
 // capture (no second audio tap). Three looks:
@@ -15,16 +16,21 @@ Rectangle {
   readonly property bool deskShown: true
   readonly property string look: mod ? String(mod.opt("vizLook", "bars")) : "bars"
   readonly property var levels: mod && mod.cava && mod.cava.levels ? mod.cava.levels : []
-  readonly property color fg: Color.foreground
-  readonly property color accent: Color.accent
+  property var deskStyle: ({})
+  readonly property color fg: DS.fg(deskStyle, Color.foreground)
+  readonly property color accent: DS.accent(deskStyle, Color.accent)
 
   width: look === "pulse" ? Style.space(220) : Style.space(360)
   height: look === "pulse" ? Style.space(220) : Style.space(150)
-  radius: SH.HubStyle.radius + Style.space(4)
+  radius: DS.radius(deskStyle, SH.HubStyle.radius + Style.space(4))
+  topLeftRadius: DS.corner(deskStyle, "tl", SH.HubStyle.radius + Style.space(4))
+  topRightRadius: DS.corner(deskStyle, "tr", SH.HubStyle.radius + Style.space(4))
+  bottomLeftRadius: DS.corner(deskStyle, "bl", SH.HubStyle.radius + Style.space(4))
+  bottomRightRadius: DS.corner(deskStyle, "br", SH.HubStyle.radius + Style.space(4))
   readonly property color bgc: Color.background
-  color: Qt.rgba(bgc.r, bgc.g, bgc.b, mod ? Number(mod.opt("vizOpacity", 0.6)) : 0.6)
+  color: DS.bg(deskStyle, bgc, accent, mod ? Number(mod.opt("vizOpacity", 0.6)) : 0.6)
   border.width: 1
-  border.color: SH.HubStyle.tint(fg, 0.08)
+  border.color: DS.border(deskStyle, Color.foreground)
 
   // falling peaks for "bars"
   property var peaks: []

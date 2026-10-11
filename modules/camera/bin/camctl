@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+"""Webcam controls through V4L2 (v4l2-ctl).
+
+  list                     cameras: name and video node
+  ctrls DEV                the controls: type, range, default, value, menu items
+  set DEV NAME VALUE       change one
+  reset DEV                every control back to its default
+  preset DEV call|dark     a ready-made look
+
+Every command prints one JSON object.
+"""
+import json, re, subprocess, sys
+
+
+def run(args):
+    r = subprocess.run(args, capture_output=True, text=True, timeout=10)
+    return r.returncode, r.stdout, r.stderr.strip()
+
+
+def out(obj):
+    print(json.dumps(obj, ensure_ascii=False))
+    return 0 if obj.get("ok", True) else 1
+
+
+def cameras():
+    _, o, _ = run(["v4l2-ctl", "--list-devices"])
+    res, cur = [], None
+    for line in o.splitlines():
+        if line and not line.startswith("\t"):
+            cur = {"name": re.sub(r"\s*\(.*\):?$", "", line).rstrip(":"), "dev": ""}
+            res.append(cur)
+        elif cur and not cur["dev"] and line.strip().startswith("/dev/video"):
+            cur["dev"] = line.strip()
+    return [c for c in res if c["dev"]]
+
+
+def ctrls(dev):
+    _, o, _ = run(["v4l2-ctl", "-d", dev, "--list-ctrls-menus"])
+    res, cur = [], None
+    for line in o.splitlines():
+        m = re.match(r"^\s+(\w+) 0x[0-9a-f]+ \((\w+)\)\s*:(.*)$", line)
+        if m:
+            name, typ, rest = m.groups()
+            f = dict(re.findall(r"(\w+)=(-?\d+)", rest))
+            cur = {"name": name, "type": typ, "min": int(f.get("min", 0)), "max": int(f.get("max", 1)), "step": int(f.get("step", 1)),
+                   "default": int(f.get("default", 0)), "value": int(f.get("value", 0)), "inactive": "inactive" in rest, "menu": {}}
+            res.append(cur)
+            continue
+        m = re.match(r"^\s+(\d+): (.+)$", line)
+        if m and cur is not None and cur["type"] == "menu":
+            cur["menu"][m.group(1)] = m.group(2).strip()
+    return res
+
+
+def setc(dev, name, value):
+    code, _, e = run(["v4l2-ctl", "-d", dev, "-c", f"{name}={value}"])
+    return code == 0, e
+
+
+def main():
+    a = sys.argv[1:]
+    c = a[0] if a else "list"
+    if c == "list":
+        return out({"ok": True, "cameras": cameras()})
+    if c == "ctrls" and len(a) > 1:
+        return out({"ok": True, "ctrls": ctrls(a[1])})
+    if c == "set" and len(a) > 3:
+        ok, e = setc(a[1], a[2], a[3]); return out({"ok": ok, "error": e})
+    if c == "reset" and len(a) > 1:
+        for x in ctrls(a[1]):
+            if x["value"] != x["default"]:
+                setc(a[1], x["name"], x["default"])
+        return out({"ok": True})
+    if c == "preset" and len(a) > 2:
+        dev, have = a[1], {x["name"]: x for x in ctrls(a[1])}
+        mid = lambda n, k: have[n]["default"] + int((have[n]["max"] - have[n]["default"]) * k) if n in have else None
+        steps = {"call": [("auto_exposure", 3), ("white_balance_automatic", 1), ("focus_automatic_continuous", 1),
+                          ("brightness", mid("brightness", 0.1)), ("sharpness", mid("sharpness", 0.2)), ("backlight_compensation", 1)],
+                 "dark": [("auto_exposure", 3), ("exposure_dynamic_framerate", 1), ("brightness", mid("brightness", 0.35)),
+                          ("gain", mid("gain", 0.5)), ("backlight_compensation", 1)]}.get(a[2], [])
+        for n, v in steps:
+            if n in have and v is not None:
+                setc(dev, n, v)
+        return out({"ok": True})
+    print(__doc__, file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

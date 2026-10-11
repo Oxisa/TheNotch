@@ -19,6 +19,7 @@ Item {
   readonly property var sys: mod ? mod.moduleById("system") : null
   readonly property var sound: mod ? mod.moduleById("soundhub") : null
   readonly property var d: sys ? sys.data : ({})
+  readonly property var account: mod ? mod.moduleById("account") : null
 
   readonly property real gap: Style.space(10)
   readonly property real topH: Style.space(124)
@@ -82,7 +83,8 @@ Item {
         color: SH.HubStyle.tint(page.accent, 0.25)
         Image {
           anchors.fill: parent
-          source: "file://" + Quickshell.env("HOME") + "/.face"
+          source: page.account ? page.account.face : "file://" + Quickshell.env("HOME") + "/.face"
+          cache: false
           fillMode: Image.PreserveAspectCrop
           sourceSize.width: 200
           asynchronous: true
@@ -91,6 +93,12 @@ Item {
       Column {
         anchors.verticalCenter: parent.verticalCenter
         spacing: Style.space(6)
+        Text {
+          visible: !!page.account
+          text: page.account ? page.account.displayName : ""
+          color: page.fg
+          font.family: page.ff; font.pixelSize: Style.font.body + 3; font.bold: true
+        }
         Repeater {
           model: [{ g: "\u{f033d}", v: page.mod ? page.mod.osName : "" }, { g: "\u{f0379}", v: "Hyprland" },
                   { g: "\u{f0150}", v: page.mod ? page.mod.upText() : "" }]

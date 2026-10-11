@@ -7,6 +7,7 @@ import qs.Commons
 import "../.."
 import "../../../osia.soundhub" as SH
 import "../../../osia.soundhub/I18n.js" as HubI18n
+import "../../DeskStyle.js" as DS
 
 // SoundHub as a TheNotch dashboard. This object is the "host" the SoundHub
 // pages expect (the bar panel plays the same role): colours, strings,
@@ -25,6 +26,7 @@ NotchModule {
   description: ru ? "Сейчас играет, микшер, эквалайзер и фоновые звуки"
                   : "Now playing, mixer, equalizer and focus sounds"
   sectionOrder: 10
+  settingsSection: "sound"
   topTab: true
 
   // ------------------------------------------------------- host: look
@@ -177,7 +179,9 @@ NotchModule {
       readonly property bool deskShown: item ? item.deskShown : false
       onEditingChanged: if (item) item.editing = editing
       onDeskVerticalChanged: if (item && "deskVertical" in item) item.deskVertical = deskVertical
-      onLoaded: { item.editing = editing; if ("deskVertical" in item) item.deskVertical = deskVertical }
+      property var deskStyle: ({})
+      onDeskStyleChanged: if (item && "deskStyle" in item) item.deskStyle = deskStyle
+      onLoaded: { item.editing = editing; if ("deskVertical" in item) item.deskVertical = deskVertical; if ("deskStyle" in item) item.deskStyle = deskStyle }
       // no explicit size: the Loader takes its item's size (a set size would squeeze the item)
       sourceComponent: String(mod.opt("deskLook", "card")) === "cassette" ? cassetteLook : cardLook
     }
@@ -187,6 +191,7 @@ NotchModule {
     id: cardLook
     Rectangle {
       property bool editing: false
+      property var deskStyle: ({})
       property bool deskVertical: false
       readonly property bool deskShown: mini.hasTrack || editing
       width: deskVertical ? vplayer.width + Style.space(28) : Style.space(400)
@@ -197,10 +202,14 @@ NotchModule {
         x: Style.space(14); y: Style.space(14)
         host: mod
       }
-      radius: SH.HubStyle.radius + Style.space(4)
-      color: Qt.rgba(mod.bgc.r, mod.bgc.g, mod.bgc.b, Number(mod.opt("deskOpacity", 0.85)))
+      radius: DS.radius(deskStyle, SH.HubStyle.radius + Style.space(4))
+      topLeftRadius: DS.corner(deskStyle, "tl", SH.HubStyle.radius + Style.space(4))
+      topRightRadius: DS.corner(deskStyle, "tr", SH.HubStyle.radius + Style.space(4))
+      bottomLeftRadius: DS.corner(deskStyle, "bl", SH.HubStyle.radius + Style.space(4))
+      bottomRightRadius: DS.corner(deskStyle, "br", SH.HubStyle.radius + Style.space(4))
+      color: DS.bg(deskStyle, mod.bgc, mod.accent, Number(mod.opt("deskOpacity", 0.85)))
       border.width: 1
-      border.color: SH.HubStyle.tint(mod.fg, 0.08)
+      border.color: DS.border(deskStyle, mod.fg)
       SH.MiniPlayer {
         id: mini
         opacity: hasTrack && !parent.deskVertical ? 1 : 0
@@ -246,16 +255,6 @@ NotchModule {
           onChanged: function(v) { mod.persist({ deskLook: v }) }
         }
       }
-      SH.HubRow {
-        title: mod.ru ? "Фон" : "Background"; fg: mod.fg; fontFamily: mod.ff
-        SH.HubSlider {
-          width: Style.space(176)
-          minimum: 0.2; maximum: 1; step: 0.05
-          value: Number(mod.opt("deskOpacity", 0.85))
-          fillColor: mod.accent; fontFamily: mod.ff
-          onReleased: function(v) { mod.persist({ deskOpacity: Math.round(v * 100) / 100 }) }
-        }
-      }
       // the visualizer — Sound's second widget
       SH.HubCaption { text: mod.ru ? "Визуализатор" : "Visualizer"; icon: "\u{f0ea2}"; fg: mod.fg; fontFamily: mod.ff }
       SH.HubRow {
@@ -278,16 +277,6 @@ NotchModule {
           value: String(mod.opt("vizLook", "bars"))
           foreground: mod.fg; accent: mod.accent; background: mod.bgc; fontFamily: mod.ff
           onChanged: function(v) { mod.persist({ vizLook: v }) }
-        }
-      }
-      SH.HubRow {
-        title: mod.ru ? "Фон визуализатора" : "Visualizer background"; fg: mod.fg; fontFamily: mod.ff
-        SH.HubSlider {
-          width: Style.space(176)
-          minimum: 0; maximum: 1; step: 0.05
-          value: Number(mod.opt("vizOpacity", 0.6))
-          fillColor: mod.accent; fontFamily: mod.ff
-          onReleased: function(v) { mod.persist({ vizOpacity: Math.round(v * 100) / 100 }) }
         }
       }
     }
