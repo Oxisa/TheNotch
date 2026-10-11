@@ -175,7 +175,9 @@ Item {
     }
   }
   Process { id: pluginToggle; onExited: { core.pluginsBusy = false; core.refreshPlugins() } }
+  // at start, then now and then: plugins also get switched outside the notch
   Timer { interval: 1200; running: true; onTriggered: core.refreshPlugins() }
+  Timer { interval: 15000; running: true; repeat: true; onTriggered: core.refreshPlugins() }
 
   // -------------------------------------------------------------- state
   property string currentId: String(opt("module", "soundhub"))

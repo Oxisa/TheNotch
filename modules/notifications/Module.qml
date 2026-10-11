@@ -1,5 +1,4 @@
 import QtQuick
-import Qt.labs.folderlistmodel
 import Quickshell
 import Quickshell.Io
 import "../.."
@@ -47,7 +46,6 @@ NotchModule {
   function setDnd(on) { dnd = on; ipc(["setDnd", on ? "on" : "off"]); dndRefresh.restart() }
   Timer { id: dndRefresh; interval: 600; onTriggered: nmod.refreshDnd() }
   Component.onCompleted: refreshDnd()
-  function clearHistory() { ipc(["clear"]) }
 
   // ------------------------------------------------------------ helpers
   function plain(s) { return String(s || "").replace(/<[^>]*>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim() }
@@ -71,87 +69,113 @@ NotchModule {
     return t("day", Math.floor(m / 1440))
   }
 
-  // ------------------------------------------------------ live pop-ups
-  // Files present when the notch starts are old news: only later ones flash.
-  property var seen: ({})
-  property bool settled: false
-  Timer { interval: 1500; running: true; onTriggered: nmod.settled = true }
+  // --------------------------------------------- reading the daemon's files
+  // A small poll (once a second) rather than a folder watch: the watch
+  // missed deletions, so cleared notifications lingered in the list.
+  property string lastRaw: ""
+  Process {
+    id: scan
+    command: ["bash", "-c",
+      "d=$1; for f in \"$d\"/*.json; do [ -e \"$f\" ] || continue; n=${f##*/}; printf 'P\\t%s\\t' \"${n%.json}\"; tr -d '\\n' < \"$f\"; echo; done; " +
+      "for f in \"$d\"/history/*.json; do [ -e \"$f\" ] || continue; n=${f##*/}; printf 'H\\t%s\\t' \"${n%.json}\"; tr -d '\\n' < \"$f\"; echo; done",
+      "--", nmod.dir.replace(/\/$/, "")]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: nmod.ingest(text) }
+  }
+  Timer { interval: 1000; repeat: true; running: true; triggeredOnStart: true; onTriggered: nmod.rescan() }
+  function rescan() { if (!scan.running) scan.running = true }
 
-  function addPopup(key, raw) {
-    if (seen[key]) return
-    var s = Object.assign({}, seen); s[key] = true; seen = s
-    if (!settled || !notch || !nmod.active) return
-    var d
-    try { d = JSON.parse(raw) } catch (e) { return }
+  function ingest(raw) {
+    if (raw === lastRaw) return
+    lastRaw = raw
+    var popups = {}, hist = {}
+    var lines = String(raw).split("\n")
+    for (var i = 0; i < lines.length; i++) {
+      var parts = lines[i].split("\t")
+      if (parts.length < 3) continue
+      var d
+      try { d = JSON.parse(parts.slice(2).join("\t")) } catch (e) { continue }
+      d.key = parts[1]
+      if (parts[0] === "P") popups[d.key] = d; else hist[d.key] = d
+    }
+    syncPopups(popups)
+    historyMap = hist
+  }
+
+  // ------------------------------------------------------ live pop-ups
+  // Identical notifications (same app, title and text) share one event with
+  // a ×N count; × dismisses the whole group.
+  function sigOf(d) { return String(d.app || "") + "\u0001" + plain(d.summary) + "\u0001" + plain(d.body) }
+  function hashOf(str) { var h = 0; for (var i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0; return (h >>> 0).toString(16) }
+
+  property var liveKeys: ({})            // file key -> group sig
+  property var groups: ({})              // sig -> { keys: [...], count, data }
+  // Files present when the notch starts are old news: only later ones flash.
+  property bool settled: false
+  property bool firstScan: true
+
+  function syncPopups(popups) {
+    var known = liveKeys, next = {}, k
+    var g = {}
+    for (var s in groups) g[s] = { keys: groups[s].keys.slice(), count: groups[s].count, data: groups[s].data }
+    for (k in popups) {
+      var sig = sigOf(popups[k])
+      next[k] = sig
+      if (known[k] !== undefined) continue
+      if (!g[sig]) g[sig] = { keys: [], count: 0, data: popups[k] }
+      g[sig].keys.push(k); g[sig].count += 1; g[sig].data = popups[k]
+      if (!firstScan && settled && notch && nmod.active) flashGroup(sig, g[sig])
+    }
+    for (k in known) {
+      if (next[k] !== undefined) continue
+      var gs = g[known[k]]
+      if (!gs) continue
+      gs.keys = gs.keys.filter(function(x) { return x !== k })
+      if (!gs.keys.length) { delete g[known[k]]; if (notch) notch.removeEvent("notif-" + hashOf(known[k])) }
+    }
+    liveKeys = next
+    groups = g
+    firstScan = false
+  }
+  function flashGroup(sig, grp) {
+    var d = grp.data
+    var keys = grp.keys.slice()
+    var latest = keys[keys.length - 1]
     var left = d.deadline ? d.deadline - Date.now() : 6000
     notch.flash({
-      key: "notif-" + key, big: true, hold: true,
-      title: plain(d.summary) || String(d.app || ""),
+      key: "notif-" + hashOf(sig), big: true, hold: true,
+      title: (plain(d.summary) || String(d.app || "")) + (grp.count > 1 ? "  ×" + grp.count : ""),
       message: plain(d.body),
       iconSource: iconFor(d), art: imageFor(d), icon: d.glyph || "󰂚",
       ms: Math.max(3000, Math.min(12000, left)),
-      action: function() { nmod.ipc(["invokeKey", key]) },
-      dismiss: function() { nmod.ipc(["dismissKey", key]) },
+      action: function() { nmod.ipc(["invokeKey", latest]) },
+      dismiss: function() { for (var i = 0; i < keys.length; i++) nmod.ipc(["dismissKey", keys[i]]) },
       onHold: function(h) { nmod.ipc([h ? "pause" : "resume"]) }
     })
   }
-  function dropPopup(key) { if (notch) notch.removeEvent("notif-" + key) }
-
-  FolderListModel {
-    id: popFolder
-    folder: "file://" + nmod.dir
-    nameFilters: ["*.json"]
-    showDirs: false
-  }
-  Instantiator {
-    model: popFolder
-    delegate: FileView {
-      required property string fileName
-      required property string filePath
-      readonly property string key: fileName.replace(/\.json$/, "")
-      path: filePath
-      printErrors: false
-      onLoaded: nmod.addPopup(key, text())
-      Component.onDestruction: nmod.dropPopup(key)
-    }
-  }
+  Timer { interval: 1500; running: true; onTriggered: nmod.settled = true }
 
   // ----------------------------------------------------------- history
+  // grouped like the pop-ups: one card per identical notification, newest first
   property var historyMap: ({})
   readonly property var history: {
-    var list = []
-    for (var k in historyMap) list.push(historyMap[k])
+    var bySig = {}, order = []
+    for (var k in historyMap) {
+      var d = historyMap[k], sig = sigOf(d)
+      if (!bySig[sig]) { bySig[sig] = { item: d, count: 0 }; order.push(sig) }
+      bySig[sig].count += 1
+      if ((d.timestamp || 0) > (bySig[sig].item.timestamp || 0)) bySig[sig].item = d
+    }
+    var list = order.map(function(s) { var it = Object.assign({}, bySig[s].item); it.count = bySig[s].count; return it })
     list.sort(function(a, b) { return (b.timestamp || 0) - (a.timestamp || 0) })
     return list
   }
-  function setHistory(key, raw) {
-    var d
-    try { d = JSON.parse(raw) } catch (e) { return }
-    d.key = key
-    var m = Object.assign({}, historyMap); m[key] = d; historyMap = m
+  function clearHistory() {
+    ipc(["clear"])
+    historyMap = ({})                     // gone from the list at once; the next scan confirms
+    lastRaw = ""
+    clearRescan.restart()
   }
-  function unsetHistory(key) {
-    if (!historyMap[key]) return
-    var m = Object.assign({}, historyMap); delete m[key]; historyMap = m
-  }
-  FolderListModel {
-    id: histFolder
-    folder: "file://" + nmod.dir + "history/"
-    nameFilters: ["*.json"]
-    showDirs: false
-  }
-  Instantiator {
-    model: histFolder
-    delegate: FileView {
-      required property string fileName
-      required property string filePath
-      readonly property string key: fileName.replace(/\.json$/, "")
-      path: filePath
-      printErrors: false
-      onLoaded: nmod.setHistory(key, text())
-      Component.onDestruction: nmod.unsetHistory(key)
-    }
-  }
+  Timer { id: clearRescan; interval: 700; onTriggered: nmod.rescan() }
 
   // refresh DND and "x min ago" while the dashboard is open
   readonly property bool opened: notch !== null && notch.expanded && notch.current === nmod

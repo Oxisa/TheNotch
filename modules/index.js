@@ -7,6 +7,7 @@ var MODULES = [
   { id: "notifications", file: "notifications/Module.qml" },
   { id: "omaloader", file: "omaloader/Module.qml" },
   { id: "quote", file: "quote/Module.qml" },
+  { id: "clock", file: "clock/Module.qml" },
   { id: "settings", file: "settings/Module.qml" },
   { id: "modules", file: "modules/Module.qml" },
   { id: "widgets", file: "widgets/Module.qml" },

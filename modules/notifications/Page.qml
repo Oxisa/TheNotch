@@ -97,6 +97,7 @@ Column {
         Text {
           width: parent.width
           text: String(card.modelData.app || "") + "  ·  " + (page.mod ? (page.mod.tick, page.mod.ago(card.modelData.timestamp || 0)) : "")
+                + (card.modelData.count > 1 ? "  ·  ×" + card.modelData.count : "")
           color: Qt.darker(page.fg, 1.6)
           font.family: page.ff; font.pixelSize: Style.font.caption - 1
           elide: Text.ElideRight
