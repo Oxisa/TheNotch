@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "osia.thenotch",
+  "name": "TheNotch",
+  "version": "0.1.0",
+  "author": "osia",
+  "license": "MIT",
+  "description": "One notch for everything: a dynamic island on any screen edge that shows live events and opens dashboards (SoundHub and more), switched by icons. Hides the Omarchy bar while active.",
+  "kinds": ["service"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml"
+  }
+}
