@@ -3,7 +3,7 @@ import qs.Commons
 import qs.Ui
 import "../../../osia.soundhub" as SH
 
-// SoundHub's five tabs inside the notch: the same pages as the bar panel
+// SoundHub's tabs inside the notch (its settings are in the settings window): the same pages as the bar panel
 // (loaded from the osia.soundhub folder, one copy of the code), under the
 // same sliding segmented control. Pages are created on first visit and kept.
 Column {
@@ -15,8 +15,7 @@ Column {
     { icon: "󰝚", key: "tab.playing", file: "NowPlaying.qml" },
     { icon: "\u{f1542}", key: "tab.mixer", file: "MixerPage.qml" },
     { icon: "󰺢", key: "tab.eq", file: "EqPage.qml" },
-    { icon: "󱅻", key: "tab.focus", file: "FocusPage.qml" },
-    { icon: "󰒓", key: "tab.settings", file: "SettingsPage.qml" }
+    { icon: "󱅻", key: "tab.focus", file: "FocusPage.qml" }
   ]
   readonly property color fg: host ? host.fg : "white"
 

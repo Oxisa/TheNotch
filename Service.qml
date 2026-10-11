@@ -12,7 +12,8 @@ import "modules/index.js" as Index
 //   modules    one object per dashboard (modules/index.js), created once
 //   state      idle → live (a module has something going on) → peek (hover)
 //              → expanded (clicked open); events flash over idle/live
-//   events     flash({ key, icon, title, message, progress, art, ms })
+//   events     flash({ key, icon | iconSource | art, title, message | progress,
+//              ms, big, hold, action(), dismiss(), onHold(bool) })
 //   window     one NotchWindow on the focused monitor, on the chosen edge
 // While active it hides the Omarchy bar (`omarchy toggle bar on` sets the
 // bar-off flag) and brings it back when it goes away.
@@ -77,7 +78,7 @@ Item {
     onLoadFailed: core.settingsLoaded = true
     onFileChanged: reload()
   }
-  Component.onCompleted: mkdir.running = true
+  Component.onCompleted: { mkdir.running = true; barStartup.start() }
 
   // ---------------------------------------------------------------- bar
   // TheNotch replaces the bar while it runs; the bar comes back when the
@@ -93,7 +94,24 @@ Item {
     }
   }
   onHideBarChanged: applyBar()
-  onSettingsLoadedChanged: applyBar()
+  // On a shell restart the old instance shows the bar on its way out, maybe
+  // after we start: apply a moment later, and once more to be sure.
+  // (settings can finish loading during construction, before any change
+  // handler is connected, so this is driven by a timer from onCompleted)
+  Timer {
+    id: barStartup; interval: 1500; repeat: true
+    onTriggered: {
+      if (!core.settingsLoaded) return
+      stop()
+      core.barHidden = !core.hideBar
+      core.applyBar()
+      barConfirm.start()
+    }
+  }
+  Timer {
+    id: barConfirm; interval: 2500
+    onTriggered: Quickshell.execDetached(["omarchy", "toggle", "bar", core.hideBar ? "on" : "off"])
+  }
   Component.onDestruction: if (barHidden) Quickshell.execDetached(["omarchy", "toggle", "bar", "off"])
 
   // ------------------------------------------------------------ modules
@@ -129,14 +147,55 @@ Item {
     var best = null
     for (var i = 0; i < modules.length; i++) {
       var m = modules[i]
-      if (m.live && (!best || m.livePriority > best.livePriority)) best = m
+      if (m.live && m.active && (!best || m.livePriority > best.livePriority)) best = m
     }
     return best
   }
 
+  // ---------------------------------------------------- Omarchy plugins
+  // for Settings → Plugins (and modules that defer to a plugin when it's on)
+  property var omarchyPlugins: []
+  property bool pluginsBusy: false
+  function pluginEnabled(id) {
+    for (var i = 0; i < omarchyPlugins.length; i++) if (omarchyPlugins[i].id === id) return omarchyPlugins[i].enabled === true
+    return false
+  }
+  function refreshPlugins() { if (!pluginList.running) pluginList.running = true }
+  function setPluginEnabled(id, on) {
+    pluginsBusy = true
+    pluginToggle.command = ["omarchy", "plugin", on ? "enable" : "disable", id]
+    pluginToggle.running = true
+  }
+  Process {
+    id: pluginList
+    command: ["omarchy", "plugin", "list", "--json"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: { try { core.omarchyPlugins = JSON.parse(text) } catch (e) {} }
+    }
+  }
+  Process { id: pluginToggle; onExited: { core.pluginsBusy = false; core.refreshPlugins() } }
+  Timer { interval: 1200; running: true; onTriggered: core.refreshPlugins() }
+
   // -------------------------------------------------------------- state
   property string currentId: String(opt("module", "soundhub"))
-  readonly property var current: moduleById(currentId) || (modules.length ? modules[0] : null)
+  readonly property var railModules: modules.filter(function(m) { return m.inRail && m.active })
+  readonly property var settingsModules: modules.filter(function(m) { return m.settingsPage !== null })
+                                                .sort(function(a, b) { return a.sectionOrder - b.sectionOrder })
+  readonly property var toggleModules: modules.filter(function(m) { return !m.core })
+  readonly property var widgetModules: modules.filter(function(m) { return m.widgetPage !== null })
+  function setModuleEnabled(id, on) { modulePersist(id, { enabled: on }) }
+  readonly property var current: (function() { var m = moduleById(currentId); return m && m.inRail ? m : (railModules.length ? railModules[0] : null) })()
+
+  // the settings window: sections from every module with a settingsPage
+  property bool settingsOpen: false
+  property string settingsSection: "settings"
+  function openSettings(id) {
+    var m = moduleById(id)
+    settingsSection = m && m.settingsPage ? id : "settings"
+    expanded = false; hovered = false
+    settingsOpen = true
+  }
   function openModule(id) { currentId = id; persist({ module: id }); expanded = true }
 
   property bool hovered: false
@@ -146,7 +205,7 @@ Item {
 
   // what the island shows: expanded > event > peek > live > idle
   readonly property string mode: expanded ? "expanded"
-    : currentEvent && !hovered ? "event"
+    : currentEvent && (!hovered || currentEvent.hold) ? "event"
     : peeking ? "peek"
     : liveModule ? "live" : "idle"
 
@@ -189,6 +248,30 @@ Item {
     eventTimer.restart()
   }
   Timer { id: eventTimer; onTriggered: core.nextEvent() }
+  // drop an event that went away at its source (e.g. a notification dismissed elsewhere)
+  function removeEvent(key) {
+    eventQueue = eventQueue.filter(function(e) { return e.key !== key })
+    if (currentEvent && currentEvent.key === key) nextEvent()
+  }
+  // a "hold" event stays while the pointer is on it, then gets a short grace
+  readonly property bool holding: hovered && currentEvent !== null && currentEvent.hold === true
+  onHoldingChanged: {
+    if (!currentEvent) return
+    if (typeof currentEvent.onHold === "function") currentEvent.onHold(holding)
+    if (holding) eventTimer.stop()
+    else { eventTimer.interval = 2500; eventTimer.restart() }
+  }
+  function clickEvent() {
+    var ev = currentEvent
+    if (ev && typeof ev.action === "function") { ev.action(); removeEvent(ev.key) }
+    else expand()
+  }
+  function dismissEvent() {
+    var ev = currentEvent
+    if (!ev) return
+    if (typeof ev.dismiss === "function") ev.dismiss()
+    removeEvent(ev.key)
+  }
 
   // volume: the default output's level / mute, as a live event
   readonly property var sink: Pipewire.defaultAudioSink
@@ -219,6 +302,14 @@ Item {
   // Layer-shell anchors don't re-apply on a live surface: a new monitor or
   // edge means a new window (Variants keyed by both).
   Variants {
+    model: core.settingsOpen ? [core.focusedScreen] : []
+    delegate: SettingsWindow {
+      required property var modelData
+      notch: core
+      screen: core.screenByName(String(modelData))
+    }
+  }
+  Variants {
     model: core.settingsLoaded ? [core.focusedScreen + "|" + core.edge] : []
     delegate: NotchWindow {
       required property var modelData
@@ -233,7 +324,7 @@ Item {
     target: "osia.thenotch"
     function toggle(): void { core.toggleExpanded() }
     function open(module: string): void { core.openModule(module || core.currentId) }
-    function close(): void { core.expanded = false; core.hovered = false }
+    function close(): void { core.expanded = false; core.hovered = false; core.settingsOpen = false }
     function edge(side: string): void { if (["top", "bottom", "left", "right"].indexOf(side) >= 0) core.persist({ edge: side }) }
     function cycleEdge(): void {
       var e = ["top", "right", "bottom", "left"]
@@ -242,6 +333,7 @@ Item {
     function bar(show: string): void { core.persist({ hideBar: show !== "on" && show !== "true" }) }
     function flash(json: string): void { try { core.flash(JSON.parse(json)) } catch (e) {} }
     function state(): string { return core.mode }
-    function debug(): string { return JSON.stringify({ mode: core.mode, inside: core.pointerInside, visited: core.visited, hovered: core.hovered, leave: leaveTimer.running }) }
+    function settings(section: string): void { core.openSettings(section || core.currentId) }
+    function debug(): string { return JSON.stringify({ mode: core.mode, inside: core.pointerInside, visited: core.visited, hovered: core.hovered, leave: leaveTimer.running, loaded: core.settingsLoaded, hideBar: core.hideBar, barHidden: core.barHidden, startup: barStartup.running }) }
   }
 }

@@ -18,8 +18,12 @@ import "../../../osia.soundhub/I18n.js" as HubI18n
 //   event  track changes
 NotchModule {
   id: mod
-  title: "SoundHub"
+  readonly property bool ru: notch !== null && notch.lang === "ru"
+  title: ru ? "Звук" : "Sound"
   icon: "󰝚"
+  description: ru ? "Сейчас играет, микшер, эквалайзер и фоновые звуки"
+                  : "Now playing, mixer, equalizer and focus sounds"
+  sectionOrder: 10
 
   // ------------------------------------------------------- host: look
   readonly property color fg: Color.foreground
@@ -112,13 +116,89 @@ NotchModule {
 
   pageWidth: tab === 0 ? (wide ? 840 : 400) : tab === 1 ? 920 : tab === 2 ? 500 : 440
   page: Component { SoundHubPage { host: mod } }
+  // SoundHub's settings live in the settings window, not in a tab
+  settingsPage: Component { SH.SettingsPage { host: mod; showDesk: false } }
+
+  // ------------------------------------------- widget: now playing card
+  // TheNotch draws it (settings in modules.soundhub) and tells the bar's
+  // SoundHub to stand down through ~/.local/state/omarchy/thenotch-widgets.json.
+  widgetTitle: ru ? "Сейчас играет" : "Now playing"
+  widgetIcon: "󰍹"
+  readonly property bool deskOn: active && opt("deskWidget", false) === true
+  readonly property string deskScreen: String(opt("deskScreen", "")) || (Quickshell.screens.length ? Quickshell.screens[0].name : "")
+  function screenByName(n) {
+    var l = Quickshell.screens
+    for (var i = 0; i < l.length; i++) if (String(l[i].name) === n) return l[i]
+    return l.length ? l[0] : null
+  }
+  Variants {
+    model: mod.deskOn ? [mod.deskScreen + "|" + String(mod.opt("deskPos", "br"))] : []
+    delegate: SH.DesktopWidget {
+      required property var modelData
+      host: mod
+      screen: mod.screenByName(String(modelData).split("|")[0])
+      place: String(modelData).split("|")[1]
+      bgOpacity: Number(mod.opt("deskOpacity", 0.85))
+    }
+  }
+  FileView { id: marker; path: Quickshell.env("HOME") + "/.local/state/omarchy/thenotch-widgets.json"; printErrors: false }
+  function writeMarker() { marker.setText(JSON.stringify({ nowplaying: mod.active && mod.notch !== null })) }
+  onActiveChanged: writeMarker()
+  onNotchChanged: writeMarker()
+
+  widgetPage: Component {
+    Column {
+      spacing: Style.space(10)
+      SH.HubRow {
+        title: mod.ru ? "Показывать на рабочем столе" : "Show on the desktop"
+        hint: mod.ru ? "Карточка плеера под окнами, пока играет трек" : "A player card under the windows while a track plays"
+        fg: mod.fg; fontFamily: mod.ff
+        SH.HubSwitch {
+          checked: mod.opt("deskWidget", false) === true
+          fg: mod.fg; accent: mod.accent; ink: mod.bgc
+          onToggled: mod.persist({ deskWidget: !checked })
+        }
+      }
+      SH.HubRow {
+        title: mod.ru ? "Монитор" : "Monitor"; fg: mod.fg; fontFamily: mod.ff
+        SH.HubSelect {
+          width: Style.space(176); showLabel: false
+          options: Quickshell.screens.map(function(sc) { return { value: sc.name, label: sc.name + (sc.model ? " · " + sc.model : "") } })
+          value: mod.deskScreen
+          foreground: mod.fg; accent: mod.accent; background: mod.bgc; fontFamily: mod.ff
+          onChanged: function(v) { mod.persist({ deskScreen: v }) }
+        }
+      }
+      SH.HubRow {
+        title: mod.ru ? "Положение" : "Position"; fg: mod.fg; fontFamily: mod.ff
+        SH.HubPlacePicker {
+          value: String(mod.opt("deskPos", "br"))
+          fg: mod.fg; accent: mod.accent
+          onPicked: function(p) { mod.persist({ deskPos: p }) }
+        }
+      }
+      SH.HubRow {
+        title: mod.ru ? "Фон" : "Background"; fg: mod.fg; fontFamily: mod.ff
+        SH.HubSlider {
+          width: Style.space(176)
+          minimum: 0.2; maximum: 1; step: 0.05
+          value: Number(mod.opt("deskOpacity", 0.85))
+          fillColor: mod.accent; fontFamily: mod.ff
+          onReleased: function(v) { mod.persist({ deskOpacity: Math.round(v * 100) / 100 }) }
+        }
+      }
+    }
+  }
 
   // ------------------------------------------------------------- live
   live: playing
   livePriority: 10
   readonly property string cavaKey: "notch-soundhub"
   onLiveChanged: SH.CavaHub.want(cavaKey, live)
-  Component.onDestruction: SH.CavaHub.want(cavaKey, false)
+  Component.onDestruction: {
+    SH.CavaHub.want(cavaKey, false)
+    marker.setText(JSON.stringify({ nowplaying: false }))     // let the bar's SoundHub draw it again
+  }
 
   liveLeft: Component {
     ClippingRectangle {
@@ -161,7 +241,7 @@ NotchModule {
     if (!trackSig || trackSig === lastTrack) return
     var first = lastTrack === ""
     lastTrack = trackSig
-    if (first || !playing || !notch || notch.opt("eventTrack", true) !== true) return
+    if (first || !playing || !active || !notch || notch.opt("eventTrack", true) !== true) return
     notch.flash({ key: "track", art: player.trackArtUrl || "", icon: "󰝚",
                   title: player.trackTitle || "", message: player.trackArtist || "", ms: 2600 })
   }
