@@ -23,11 +23,14 @@ Column {
         }
       }
       SH.HubRow {
-        title: page.mod ? page.mod.t("place") : ""; fg: page.fg; fontFamily: page.ff
-        SH.HubPlacePicker {
-          value: page.mod ? page.mod.place : ""
-          fg: page.fg; accent: page.accent
-          onPicked: function(p) { page.mod.setPlace(p) }
+        title: page.mod ? page.mod.t("orientation") : ""; fg: page.fg; fontFamily: page.ff
+        SH.HubSelect {
+          width: Style.space(170); showLabel: false
+          value: page.mod ? page.mod.cfg.orientation : "horizontal"
+          options: [{ value: "horizontal", label: page.mod ? page.mod.t("horizontal") : "" },
+                    { value: "vertical", label: page.mod ? page.mod.t("vertical") : "" }]
+          foreground: page.fg; accent: page.accent; background: page.bgc; fontFamily: page.ff
+          onChanged: function(v) { page.mod.set("orientation", v) }
         }
       }
       SH.HubRow {
@@ -53,7 +56,7 @@ Column {
       Row {
         spacing: Style.space(6)
         SH.HubChip {
-          icon: "\u{f01be}"; label: page.mod ? page.mod.t("move") : ""
+          icon: "\u{f072c}"; label: page.mod ? page.mod.t("arrange") : ""
           fg: page.fg; accent: page.accent; fontFamily: page.ff
           onClicked: page.mod.move()
         }

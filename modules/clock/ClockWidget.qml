@@ -1,5 +1,4 @@
 import QtQuick
-import Quickshell
 import qs.Commons
 import "../../../osia.soundhub" as SH
 
@@ -15,9 +14,6 @@ Column {
   readonly property string ff: Style.font.family
   readonly property bool ru: mod && mod.ru
   readonly property var cfg: mod ? mod.cfg : ({})
-  readonly property var places: ({ tl: "top-left", t: "top-center", tr: "top-right", l: "middle-left", c: "middle-center",
-                                   r: "middle-right", bl: "bottom-left", b: "bottom-center", br: "bottom-right" })
-  function placeOf(position) { for (var k in places) if (places[k] === position) return k; return "" }
   function set(key, value) { var v = {}; v[key] = value; mod.persist(v) }
 
   component Sw: SH.HubRow {
@@ -72,26 +68,18 @@ Column {
     }
   }
   SH.HubRow {
-    title: page.ru ? "Мониторы" : "Monitors"; fg: page.fg; fontFamily: page.ff
+    title: page.ru ? "Стиль часов" : "Clock style"; fg: page.fg; fontFamily: page.ff
     SH.HubSelect {
       width: Style.space(176); showLabel: false
-      options: [{ value: "all", label: page.ru ? "Все" : "All" }, { value: "focused", label: page.ru ? "С фокусом" : "Focused" }]
-               .concat(Quickshell.screens.map(function(sc) { return { value: sc.name, label: sc.name + (sc.model ? " · " + sc.model : "") } }))
-      value: page.mod ? page.mod.screenMode : "all"
+      options: [{ value: "kronos", label: page.ru ? "Kronos (кольца)" : "Kronos (rings)" }, { value: "type", label: page.ru ? "Крупный шрифт" : "Typographic" },
+                { value: "flip", label: page.ru ? "Перекидные" : "Flip" }, { value: "day", label: page.ru ? "Кольцо дня" : "Day ring" }]
+      value: page.mod ? String(page.mod.opt("style", "kronos")) : "kronos"
       foreground: page.fg; accent: page.accent; background: page.bgc; fontFamily: page.ff
-      onChanged: function(v) { page.set("screenMode", v) }
+      onChanged: function(v) { page.mod.persist({ style: v }) }
     }
   }
   SH.HubRow {
-    title: page.ru ? "Положение" : "Position"; fg: page.fg; fontFamily: page.ff
-    SH.HubPlacePicker {
-      value: page.placeOf(page.cfg.position)
-      fg: page.fg; accent: page.accent
-      onPicked: function(p) { page.set("position", page.places[p]) }
-    }
-  }
-  SH.HubRow {
-    title: page.ru ? "Вид" : "Style"; fg: page.fg; fontFamily: page.ff
+    title: page.ru ? "Вид колец" : "Ring layout"; fg: page.fg; fontFamily: page.ff
     SH.HubSelect {
       width: Style.space(176); showLabel: false
       options: [{ value: "orbit", label: page.ru ? "Кольца" : "Orbit" }, { value: "digital", label: page.ru ? "Цифровые" : "Digital" }]
@@ -109,6 +97,27 @@ Column {
       value: String(page.cfg.accentMode || "theme")
       foreground: page.fg; accent: page.accent; background: page.bgc; fontFamily: page.ff
       onChanged: function(v) { page.set("accentMode", v) }
+    }
+  }
+  SH.HubRow {
+    title: page.ru ? "Цифры" : "Digits"; fg: page.fg; fontFamily: page.ff
+    SH.HubSelect {
+      width: Style.space(176); showLabel: false
+      options: [{ value: "default", label: page.ru ? "Как в теме" : "Theme font" }, { value: "gothic", label: page.ru ? "Готические (как у цитат)" : "Blackletter (like quotes)" },
+                { value: "serif", label: page.ru ? "С засечками" : "Serif" }]
+      value: page.mod ? String(page.mod.opt("digits", "default")) : "default"
+      foreground: page.fg; accent: page.accent; background: page.bgc; fontFamily: page.ff
+      onChanged: function(v) { page.mod.persist({ digits: v }) }
+    }
+  }
+  SH.HubRow {
+    title: page.ru ? "Фон" : "Background"; fg: page.fg; fontFamily: page.ff
+    SH.HubSlider {
+      width: Style.space(176)
+      minimum: 0; maximum: 1; step: 0.05
+      value: page.mod ? Number(page.mod.opt("bgOpacity", 0)) : 0
+      fillColor: page.accent; fontFamily: page.ff
+      onReleased: function(v) { page.mod.persist({ bgOpacity: Math.round(v * 100) / 100 }) }
     }
   }
   SH.HubRow {

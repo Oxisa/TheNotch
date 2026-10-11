@@ -56,7 +56,7 @@ PanelWindow {
   readonly property var live: notch ? notch.liveModule : null
   property real pageW: cur ? Style.space(cur.pageWidth) : Style.space(440)
   property real pageH: expandedPage.item ? expandedPage.item.implicitHeight : Style.space(200)
-  readonly property real railH: Style.space(38)
+  readonly property real railH: Style.space(62)
 
   function sizeFor(m) {
     if (m === "expanded") {
@@ -72,7 +72,14 @@ PanelWindow {
       return big ? { w: Style.space(400), h: Style.space(78) } : { w: Style.space(320), h: Style.space(56) }
     }
     if (m === "live") return vertical ? { w: thin + Style.space(4), h: Style.space(190) } : { w: Style.space(280), h: thin + Style.space(2) }
-    return vertical ? { w: thin, h: Style.space(150) } : { w: Style.space(200), h: thin }
+    return vertical ? { w: thin, h: Style.space(earExtra ? 210 : 150) } : { w: Style.space(earExtra ? 270 : 200), h: thin }
+  }
+  // anything a module wants next to the clock (weather); widens the idle notch
+  readonly property string earExtra: {
+    var ms = notch ? notch.modules : []
+    var out = []
+    for (var i = 0; i < ms.length; i++) if (ms[i].active && ms[i].ear) out.push(ms[i].ear)
+    return out.join("   ")
   }
   readonly property var target: sizeFor(mode)
   readonly property bool big: mode === "expanded" || mode === "peek"
@@ -135,8 +142,8 @@ PanelWindow {
       Behavior on topRightRadius { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
       Behavior on bottomLeftRadius { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
       Behavior on bottomRightRadius { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
-      border.width: win.notch && win.notch.islandColor !== Color.background ? 0 : 1
-      border.color: Qt.rgba(win.fg.r, win.fg.g, win.fg.b, 0.07)
+      // no outline: it ran along the screen edge and stopped at the concave
+      // corners, so the notch looked pieced together
     }
     // concave corners where the island meets a top/bottom edge
     Fillet { visible: !win.vertical; flip: win.edge === "bottom"; fill: win.fill; x: -width; y: win.edge === "top" ? 0 : parent.height - height }
@@ -203,10 +210,12 @@ PanelWindow {
         sourceComponent: ears.isLive && win.live.liveRight ? win.live.liveRight : clockComp
       }
       Component { id: wsComp; Ws {} }
+      readonly property string extra: win.earExtra
       Component {
         id: clockComp
         Text {
-          text: win.vertical ? ears.hh + "\n" + ears.mm : ears.hh + ":" + ears.mm
+          text: win.vertical ? (ears.extra ? ears.extra.replace(" ", "\n") + "\n" : "") + ears.hh + "\n" + ears.mm
+                             : (ears.extra ? ears.extra + "   " : "") + ears.hh + ":" + ears.mm
           horizontalAlignment: Text.AlignHCenter
           lineHeight: 0.9
           color: win.fg
@@ -328,34 +337,114 @@ PanelWindow {
       focus: win.mode === "expanded"
       Keys.onEscapePressed: win.notch.expanded = false
 
-      // module icons; the current one carries a pill
+      // tabs across the width, icon over label, with a sliding underline
+      // (after caelestia); the other dashboards are small icons on the
+      // right; a dashboard opened by its icon shows "‹ <last tab>" instead
+      readonly property bool onTab: win.cur !== null && win.cur.topTab
       Row {
         id: rail
-        height: win.railH - Style.space(8)
-        spacing: Style.space(6)
+        visible: expanded.onTab
+        width: icons.x - Style.space(12)
+        height: win.railH - Style.space(10)
         Repeater {
-          model: win.notch ? win.notch.railModules : []
-          delegate: Rectangle {
-            id: railBtn
+          id: tabs
+          model: win.notch ? win.notch.tabModules : []
+          delegate: Item {
+            id: tabBtn
             required property var modelData
             readonly property bool on: win.cur === modelData
-            height: rail.height; width: height
-            radius: height / 2
-            color: on ? win.accent : Qt.rgba(win.fg.r, win.fg.g, win.fg.b, railMouse.containsMouse ? 0.12 : 0.06)
-            Behavior on color { ColorAnimation { duration: 160 } }
-            Text {
+            height: rail.height
+            width: rail.width / Math.max(1, tabs.count)
+            Column {
+              id: tabCol
               anchors.centerIn: parent
-              text: railBtn.modelData.icon
-              color: railBtn.on ? win.fill : win.fg
-              font.family: win.ff; font.pixelSize: Style.font.body + 1
+              spacing: Style.space(2)
+              Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: tabBtn.modelData.icon
+                color: tabBtn.on ? win.accent : Qt.darker(win.fg, tabMouse.containsMouse ? 1.1 : 1.45)
+                font.family: win.ff; font.pixelSize: Style.font.body + 3
+              }
+              Text {
+                id: tabLabel
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: tabBtn.modelData.title
+                color: tabBtn.on ? win.accent : Qt.darker(win.fg, tabMouse.containsMouse ? 1.1 : 1.45)
+                font.family: win.ff; font.pixelSize: Style.font.caption + 1; font.bold: tabBtn.on
+              }
             }
+            readonly property real lineW: tabLabel.implicitWidth + Style.space(16)
             MouseArea {
-              id: railMouse
+              id: tabMouse
               anchors.fill: parent
               hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
-              onClicked: win.notch.openModule(railBtn.modelData.moduleId)
+              onClicked: win.notch.openModule(tabBtn.modelData.moduleId)
             }
+          }
+        }
+      }
+      Rectangle {                                        // the underline under the current tab
+        id: underline
+        visible: expanded.onTab
+        readonly property var target: {
+          for (var i = 0; i < tabs.count; i++) { var it = tabs.itemAt(i); if (it && it.on) return it }
+          return null
+        }
+        x: target ? rail.x + target.x + (target.width - target.lineW) / 2 : 0
+        width: target ? target.lineW : 0
+        y: rail.height + Style.space(1)
+        height: 3; radius: 1.5
+        color: win.accent
+        Behavior on x { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+        Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+      }
+      Rectangle {                                        // a thin line under the whole row
+        y: rail.height + Style.space(3)
+        width: parent.width; height: 1
+        color: Qt.rgba(win.fg.r, win.fg.g, win.fg.b, 0.08)
+      }
+      // back to the last tab from a module's page
+      Rectangle {
+        id: back
+        visible: !expanded.onTab
+        anchors.verticalCenter: icons.verticalCenter
+        height: Style.space(30)
+        width: backRow.implicitWidth + Style.space(20)
+        radius: height / 2
+        color: Qt.rgba(win.fg.r, win.fg.g, win.fg.b, backMouse.containsMouse ? 0.12 : 0.06)
+        readonly property var to: win.notch ? win.notch.moduleById(win.notch.lastTab) : null
+        Row {
+          id: backRow
+          anchors.centerIn: parent
+          spacing: Style.space(6)
+          Text { anchors.verticalCenter: parent.verticalCenter; text: "\u{f0141}"; color: win.fg; font.family: win.ff; font.pixelSize: Style.font.body + 1 }
+          Text { anchors.verticalCenter: parent.verticalCenter; text: back.to ? back.to.title : ""; color: win.fg; font.family: win.ff; font.pixelSize: Style.font.body }
+        }
+        MouseArea {
+          id: backMouse
+          anchors.fill: parent
+          hoverEnabled: true
+          cursorShape: Qt.PointingHandCursor
+          onClicked: win.notch.openModule(win.notch.lastTab)
+        }
+      }
+      // the other dashboards: small icons before the gear
+      Row {
+        id: icons
+        anchors.right: gear.left; anchors.rightMargin: Style.space(8)
+        y: (rail.height - height) / 2
+        spacing: Style.space(4)
+        Repeater {
+          model: win.notch ? win.notch.iconModules : []
+          delegate: Rectangle {
+            id: ib
+            required property var modelData
+            readonly property bool on: win.cur === modelData
+            width: Style.space(30); height: width; radius: width / 2
+            color: on ? win.accent : Qt.rgba(win.fg.r, win.fg.g, win.fg.b, ibMouse.containsMouse ? 0.12 : 0.05)
+            Text { anchors.centerIn: parent; text: ib.modelData.icon; color: ib.on ? win.fill : win.fg; font.family: win.ff; font.pixelSize: Style.font.body }
+            MouseArea { id: ibMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: win.notch.openModule(ib.modelData.moduleId) }
           }
         }
       }
@@ -363,8 +452,8 @@ PanelWindow {
       Rectangle {
         id: gear
         anchors.right: parent.right
-        anchors.verticalCenter: rail.verticalCenter
-        height: rail.height; width: height; radius: height / 2
+        y: (rail.height - height) / 2
+        height: Style.space(30); width: height; radius: height / 2
         color: Qt.rgba(win.fg.r, win.fg.g, win.fg.b, gearMouse.containsMouse ? 0.12 : 0.06)
         Behavior on color { ColorAnimation { duration: 160 } }
         Text {
@@ -384,11 +473,12 @@ PanelWindow {
         }
       }
       Text {
-        anchors.left: rail.right; anchors.leftMargin: Style.space(12)
+        visible: !expanded.onTab
+        anchors.left: back.right; anchors.leftMargin: Style.space(12)
         anchors.right: gear.left; anchors.rightMargin: Style.space(8)
         elide: Text.ElideRight
-        anchors.verticalCenter: rail.verticalCenter
-        text: win.cur ? win.cur.title : ""
+        anchors.verticalCenter: back.verticalCenter
+        text: win.cur ? (win.cur.icon + "  " + win.cur.title) : ""
         color: Qt.darker(win.fg, 1.3)
         font.family: win.ff; font.pixelSize: Style.font.body; font.bold: true
       }

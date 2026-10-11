@@ -3,7 +3,8 @@ import qs.Commons
 import "../../../osia.soundhub" as SH
 
 // The current quote, large, with New / Copy (its settings are in the
-// settings window: QuoteSettings.qml).
+// settings window: QuoteSettings.qml). A Bible verse also gets Commentary:
+// Matthew Henry's notes on it, fetched when asked, under the card.
 Column {
   id: page
   property var mod: null
@@ -14,6 +15,8 @@ Column {
   readonly property color bgc: Color.background
   readonly property string ff: Style.font.family
   readonly property var q: mod ? mod.quote : null
+  property bool showCommentary: false
+  onQChanged: if (!mod || !mod.isVerse) showCommentary = false
 
   FontLoader { id: gothic; source: page.mod ? page.mod.fontUrl : "" }
 
@@ -71,6 +74,45 @@ Column {
           fg: page.fg; accent: page.accent; fontFamily: page.ff
           onClicked: { page.mod.copy(); done = true; copyReset.restart() }
           Timer { id: copyReset; interval: 1500; onTriggered: copyChip.done = false }
+        }
+        SH.HubChip {
+          visible: !!(page.mod && page.mod.isVerse)
+          icon: "\u{f05da}"; label: page.mod ? page.mod.t("commentary") : ""
+          on: page.showCommentary
+          fg: page.fg; accent: page.accent; ink: page.bgc; fontFamily: page.ff
+          onClicked: { page.showCommentary = !page.showCommentary; if (page.showCommentary) page.mod.loadCommentary() }
+        }
+      }
+    }
+  }
+
+  SH.HubCard {
+    visible: page.showCommentary && !!(page.mod && page.mod.isVerse)
+    width: parent.width
+    height: Math.min(Style.space(300), commCol.implicitHeight + SH.HubStyle.pad * 2)
+    fg: page.fg; accent: page.accent
+    clip: true
+    Flickable {
+      anchors.fill: parent
+      anchors.margins: SH.HubStyle.pad
+      contentHeight: commCol.implicitHeight
+      boundsBehavior: Flickable.StopAtBounds
+      Column {
+        id: commCol
+        width: parent.width
+        spacing: Style.space(6)
+        Text {
+          text: page.mod ? page.mod.t("commentaryHint") : ""
+          color: Qt.darker(page.fg, 1.6)
+          font.family: page.ff; font.pixelSize: Style.font.caption - 1
+        }
+        Text {
+          width: parent.width
+          text: page.mod ? (page.mod.commentaryBusy ? "…" : page.mod.commentary) : ""
+          color: Qt.darker(page.fg, 1.15)
+          wrapMode: Text.WordWrap
+          font.family: "Noto Serif"; font.pixelSize: Style.font.caption + 1
+          lineHeight: 1.15
         }
       }
     }

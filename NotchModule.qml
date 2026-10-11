@@ -34,6 +34,12 @@ Item {
   property Component peek: null
   property int peekWidth: 380
 
+  // a tab on top of the open notch (Home, Sound, System, Centre); the other
+  // dashboards are small icons at the right end of the tab row
+  property bool topTab: false
+  // shown inside another tab (Notifications in Centre): no icon of its own
+  property bool noIcon: false
+
   property Component settingsPage: null
   property bool inRail: true
   property int sectionOrder: 50            // place in the settings sidebar
@@ -49,6 +55,20 @@ Item {
   property Component widgetPage: null
   property string widgetTitle: ""
   property string widgetIcon: ""
+  // The widget itself: content only — TheNotch owns the windows, positions
+  // and the per-monitor layout (WidgetWindow / LayoutEditor). The content may
+  // declare fx, fy (its centre as a share of the screen), screenW, screenH
+  // and editing; the host fills them in. `deskShown: false` hides it (e.g. no
+  // track), except while the layout is being edited.
+  property Component deskWidget: null
+  property bool deskEnabled: false
+  property var deskDefault: ({ x: 0.04, y: 0.08 })   // where it first lands, as a share of the screen
+  function setDeskEnabled(on) {}
+  // more widgets from the same module (DeskWidget objects), e.g. Sound's visualizer
+  property list<QtObject> deskList
+
+  // a short text the collapsed notch shows next to its clock (e.g. "☁ +12°")
+  property string ear: ""
 
   visible: false
 }

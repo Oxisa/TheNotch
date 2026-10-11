@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import qs.Commons
 import "../../../osia.soundhub" as SH
 
@@ -27,6 +28,16 @@ Column {
   }
 
   Card {
+    SH.HubRow {
+      title: page.t("monitor"); fg: page.fg; fontFamily: page.ff
+      SH.HubSelect {
+        width: Style.space(176); showLabel: false
+        options: Quickshell.screens.map(function(sc) { return { value: sc.name, label: sc.name + (sc.model ? " · " + sc.model : "") } })
+        value: page.notch ? page.notch.notchScreen : ""
+        foreground: page.fg; accent: page.accent; background: page.bgc; fontFamily: page.ff
+        onChanged: function(v) { page.notch.persist({ screen: v }) }
+      }
+    }
     SH.HubRow {
       title: page.t("edge"); fg: page.fg; fontFamily: page.ff
       Row {

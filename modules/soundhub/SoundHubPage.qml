@@ -15,7 +15,8 @@ Column {
     { icon: "󰝚", key: "tab.playing", file: "NowPlaying.qml" },
     { icon: "\u{f1542}", key: "tab.mixer", file: "MixerPage.qml" },
     { icon: "󰺢", key: "tab.eq", file: "EqPage.qml" },
-    { icon: "󱅻", key: "tab.focus", file: "FocusPage.qml" }
+    { icon: "󱅻", key: "tab.focus", file: "FocusPage.qml" },
+    { icon: "\u{f036c}", key: "tab.mic", file: "MicPage.qml" }
   ]
   readonly property color fg: host ? host.fg : "white"
 

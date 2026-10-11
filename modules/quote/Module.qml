@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "../.."
+import "../../../osia.dailyquote" as DQP
 import "../../../osia.dailyquote/settings.js" as DQ
 
 // Daily Quote as a TheNotch dashboard. The quote and its desktop overlay
@@ -23,11 +24,30 @@ NotchModule {
   widgetTitle: t("widget")
   widgetIcon: "\u{f0757}"
   widgetPage: Component { QuoteWidget { mod: qmod } }
-  readonly property bool hostOverlay: active && notch !== null && notch.omarchyPlugins.length > 0
-                                      && !notch.pluginEnabled("osia.dailyquote")
-  Loader {
-    active: qmod.hostOverlay
-    source: Qt.resolvedUrl("../../../osia.dailyquote/Service.qml")
+  // TheNotch's widget layer draws the quote card while the Daily Quote plugin
+  // is off (with it on, the plugin draws its own and this stays out of the
+  // way); the notch then keeps the quote fresh itself with the plugin's script.
+  readonly property bool pluginOn: notch !== null && notch.pluginEnabled("osia.dailyquote")
+  readonly property bool hosting: active && notch !== null && notch.omarchyPlugins.length > 0 && !pluginOn
+  readonly property string helper: decodeURIComponent(Qt.resolvedUrl("../../../osia.dailyquote/bin/dailyquote").toString().replace(/^file:\/\//, ""))
+  Process { id: fetch }
+  function runHelper(args) { if (!fetch.running) { fetch.command = [helper].concat(args); fetch.running = true } }
+  Timer {
+    interval: 60000; repeat: true; triggeredOnStart: true
+    running: qmod.hosting
+    onTriggered: qmod.runHelper(["get", String(qmod.cfg.intervalMinutes), qmod.cfg.lang])
+  }
+  deskEnabled: hosting && cfg.visible
+  function setDeskEnabled(on) { set("visible", on) }
+  deskDefault: ({ x: 0.30, y: 0.78 })
+  deskWidget: Component {
+    DQP.QuoteCard {
+      readonly property bool deskShown: qmod.quote !== null || editing
+      property bool deskVertical: false          // turned 90°: vertical writing, upright
+      quote: qmod.quote
+      cfg: deskVertical ? qmod.verticalCfg : qmod.cfg
+      s: qmod.cfg.scale
+    }
   }
   pageWidth: 460
   page: Component { Page { mod: qmod } }
@@ -38,16 +58,19 @@ NotchModule {
 
   readonly property var strings: ({
     en: { title: "Quotes", desc: "A quote of the day on the desktop and in the notch", widget: "Quote on the desktop",
-          lang: "Translation", fresh: "New quote", copy: "Copy", copied: "Copied", show: "Show on the desktop",
-          place: "Position", size: "Size", background: "Background", reset: "Reset",
-          change: "Change it", move: "Move on the desktop", none: "No quote yet" },
+          lang: "Translation", orientation: "Orientation", horizontal: "Horizontal", vertical: "Vertical", origLangs: "Original languages", origLangsHint: "Off: such quotes show their translation instead", fresh: "New quote", copy: "Copy", copied: "Copied", show: "Show on the desktop",
+          place: "Position", size: "Size", background: "Background", reset: "Reset", arrange: "Arrange widgets",
+          change: "Change it", sources: "Sources", sourcesHint: "Where new quotes come from", sayings: "Sayings", bible: "Bible",
+          commentary: "Commentary", commentaryHint: "Matthew Henry, in English", noCommentary: "No commentary for this verse", move: "Move on the desktop", none: "No quote yet" },
     ru: { title: "Цитаты", desc: "Цитата дня на рабочем столе и в чёлке", widget: "Цитата на рабочем столе",
-          lang: "Язык перевода", fresh: "Новая цитата", copy: "Копировать", copied: "Скопировано", show: "Показывать на рабочем столе",
-          place: "Положение", size: "Размер", background: "Фон", reset: "Сбросить",
-          change: "Смена цитаты", move: "Переместить на рабочем столе", none: "Цитаты пока нет" }
+          lang: "Язык перевода", orientation: "Ориентация", horizontal: "Горизонтально", vertical: "Вертикально", origLangs: "Языки оригинала", origLangsHint: "Выключенный язык — вместо оригинала покажется перевод", fresh: "Новая цитата", copy: "Копировать", copied: "Скопировано", show: "Показывать на рабочем столе",
+          place: "Положение", size: "Размер", background: "Фон", reset: "Сбросить", arrange: "Расставить виджеты",
+          change: "Смена цитаты", sources: "Источники", sourcesHint: "Откуда берутся новые цитаты", sayings: "Изречения", bible: "Библия",
+          commentary: "Толкование", commentaryHint: "Мэтью Генри, на английском", noCommentary: "Для этого стиха толкования нет", move: "Переместить на рабочем столе", none: "Цитаты пока нет" }
   })
   function t(k) { var lang = notch ? notch.lang : "en"; return (strings[lang] || strings.en)[k] || strings.en[k] || k }
   function every(minutes) { return DQ.t(notch ? notch.lang : "en", "every")[minutes] }
+
 
   // ------------------------------------------------- the plugin's files
   property var quote: null
@@ -80,16 +103,64 @@ NotchModule {
     cfgFile.setText(JSON.stringify(cfg))
   }
   readonly property string place: DQ.placeOf(cfg)
+  readonly property var verticalCfg: { var c = {}; for (var k in cfg) c[k] = cfg[k]; c.orientation = "vertical"; return c }
   function resetLook() { setMany(DQ.resetLook()) }
   // original on top (any language), translation into the plugin's language under it
-  readonly property string upper: DQ.topOf(quote)
-  readonly property string lower: DQ.bottomOf(quote, cfg.lang)
-  function fontFor(gothicName) { return DQ.fontFor(DQ.langOf(quote), gothicName) }
+  // honours the original languages switched off in the settings
+  readonly property var shown: DQ.view(quote, cfg)
+  readonly property string upper: shown.top
+  readonly property string lower: shown.bottom
+  function fontFor(gothicName) { return DQ.fontFor(shown.topLang, gothicName) }
+  function toggleLang(code) {
+    var h = cfg.hideLangs.slice()
+    if (h.indexOf(code) >= 0) h = h.filter(function(x) { return x !== code }); else h.push(code)
+    set("hideLangs", h)
+  }
+  // at least one source stays on; a change brings a quote from the new mix
+  function toggleSource(code) {
+    var src = cfg.sources.slice()
+    if (src.indexOf(code) >= 0) { if (src.length === 1) return; src = src.filter(function(x) { return x !== code }) }
+    else src.push(code)
+    set("sources", src)
+    next()
+  }
+  // a verse's commentary (Matthew Henry via bible.helloao.org), on request
+  readonly property bool isVerse: quote !== null && quote.source === "Bible" && !!quote.ref
+  property string commentary: ""
+  property string commentaryFor: ""
+  property bool commentaryBusy: false
+  Process {
+    id: comm
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        qmod.commentaryBusy = false
+        var out = ""
+        try {
+          var d = JSON.parse(text), v = qmod.quote.ref.verse, best = null
+          var c = d.chapter && d.chapter.content ? d.chapter.content : []
+          for (var i = 0; i < c.length; i++)
+            if (c[i].type === "verse" && Number(c[i].number) <= v) best = c[i]
+          if (best) out = best.content.map(function(x) { return typeof x === "string" ? x : (x.text || "") }).join(" ").trim()
+        } catch (e) {}
+        qmod.commentary = out || qmod.t("noCommentary")
+      }
+    }
+  }
+  function loadCommentary() {
+    if (!isVerse || comm.running) return
+    var r = quote.ref, k = r.book + r.chapter + ":" + r.verse
+    if (k === commentaryFor && commentary) return
+    commentaryFor = k; commentary = ""; commentaryBusy = true
+    comm.command = ["curl", "-fsS", "--max-time", "30", "https://bible.helloao.org/api/c/matthew-henry/" + r.book + "/" + r.chapter + ".json"]
+    comm.running = true
+  }
+  onQuoteChanged: if (commentaryFor && isVerse && commentaryFor !== quote.ref.book + quote.ref.chapter + ":" + quote.ref.verse) { commentary = ""; commentaryFor = "" }
   function setPlace(p) { setMany({ posX: DQ.PLACES[p][0], posY: DQ.PLACES[p][1] }) }
 
   function ipc(cmd) { Quickshell.execDetached(["qs", "-p", Quickshell.shellDir, "ipc", "call", "osia.dailyquote", cmd]) }
-  function next() { ipc("next") }
-  function move() { if (notch) notch.expanded = false; ipc("edit") }
+  function next() { if (pluginOn) ipc("next"); else runHelper(["next", cfg.lang]) }
+  function move() { if (notch) notch.editLayout(true) }
   function copy() {
     if (!quote) return
     var txt = upper + (lower ? "\n" + lower : "") + (quote.author ? "\n— " + quote.author : "")

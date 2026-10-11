@@ -1,0 +1,261 @@
+#!/usr/bin/env python3
+"""Voice recorder for TheNotch: record the microphone (optionally mixed with
+the system's sound, for calls), keep the recordings, transcribe them locally
+with voxtype (whisper). Nothing leaves the machine except voxtype's own model
+download, and only when asked. Idea after OmaRecorder
+(huey-holdings-llc/omarecorder, MIT); no code taken.
+
+  status                       recording now?, jobs, models
+  start [--system] [--mic SRC] start recording
+  stop                         stop; mixes mic + system into audio.wav
+  list                         recordings, newest first
+  transcribe ID [MODEL] [LANG] in the background; writes transcript.txt
+  delete ID | rename ID TITLE
+  download MODEL               voxtype setup --download --model MODEL
+
+Every command prints one JSON object. Recordings live in
+~/Recordings/Диктофон (or $THENOTCH_RECORDINGS), one folder each:
+audio.wav, meta.json, transcript.txt.
+"""
+
+import json
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+HOME = Path.home()
+ROOT = Path(os.environ.get("THENOTCH_RECORDINGS") or HOME / "Recordings" / "Диктофон")
+RUN = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp") / "thenotch-recorder"
+STATE = RUN / "state.json"
+MODELS = Path(os.environ.get("VOXTYPE_MODELS_DIR") or HOME / ".local/share/voxtype/models")
+CATALOG = [  # whisper models voxtype can fetch; multilingual ones handle Russian
+    {"name": "base", "label": "base", "size": 142},
+    {"name": "small", "label": "small", "size": 466},
+    {"name": "large-v3-turbo", "label": "large-v3-turbo", "size": 1600},
+]
+
+
+def out(obj):
+    print(json.dumps(obj, ensure_ascii=False))
+    return 0
+
+
+def load_state():
+    try:
+        return json.loads(STATE.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(s):
+    RUN.mkdir(parents=True, exist_ok=True)
+    os.chmod(RUN, 0o700)
+    tmp = STATE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(s))
+    tmp.replace(STATE)
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def run(args, timeout=5):
+    return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+
+
+def installed_models():
+    have = []
+    for m in CATALOG:
+        if (MODELS / f"ggml-{m['name']}.bin").exists():
+            have.append(m["name"])
+    for f in MODELS.glob("ggml-*.bin") if MODELS.exists() else []:
+        n = f.name[5:-4]
+        if n not in have:
+            have.append(n)
+    return have
+
+
+def duration(path):
+    r = run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)])
+    try:
+        return float(r.stdout.strip())
+    except ValueError:
+        return 0.0
+
+
+def meta_of(d):
+    try:
+        m = json.loads((d / "meta.json").read_text())
+    except (OSError, ValueError):
+        m = {"id": d.name, "title": d.name}
+    m["id"] = d.name
+    tx = d / "transcript.txt"
+    m["transcript"] = tx.read_text()[:20000] if tx.exists() else ""
+    m["path"] = str(d / "audio.wav")
+    return m
+
+
+def status():
+    s = load_state()
+    rec = s.get("recording")
+    if rec and not any(alive(p) for p in rec.get("pids", [])):
+        rec = None
+    jobs = {k: v for k, v in (s.get("jobs") or {}).items() if alive(v.get("pid", 0))}
+    return {"ok": True, "recording": rec, "jobs": jobs, "models": installed_models(), "catalog": CATALOG,
+            "root": str(ROOT), "voxtype": shutil.which("voxtype") is not None,
+            "download": s.get("download") if s.get("download") and alive(s["download"].get("pid", 0)) else None}
+
+
+def cmd_start(system, mic):
+    s = load_state()
+    if status()["recording"]:
+        return out({"ok": False, "error": "already recording"})
+    rid = datetime.now().strftime("%Y-%m-%d %H-%M-%S")
+    d = ROOT / rid
+    d.mkdir(parents=True, exist_ok=True)
+    os.chmod(d, 0o700)
+    pids = []
+    mic_cmd = ["pw-record", "--rate", "48000", "--channels", "1"] + (["--target", mic] if mic else []) + [str(d / "mic.wav")]
+    pids.append(subprocess.Popen(mic_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True).pid)
+    if system:
+        sink = run(["pactl", "get-default-sink"]).stdout.strip()
+        sys_cmd = ["pw-record", "--rate", "48000", "--channels", "2", "-P", "stream.capture.sink=true"] + \
+                  (["--target", sink] if sink else []) + [str(d / "system.wav")]
+        pids.append(subprocess.Popen(sys_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True).pid)
+    (d / "meta.json").write_text(json.dumps({"title": rid, "started": int(time.time()), "system": system,
+                                             "mic": mic}, ensure_ascii=False))
+    s["recording"] = {"id": rid, "started": int(time.time()), "pids": pids, "system": system}
+    save_state(s)
+    return out(status())
+
+
+def cmd_stop():
+    s = load_state()
+    rec = s.get("recording")
+    if not rec:
+        return out(status())
+    for p in rec.get("pids", []):
+        try:
+            os.kill(p, signal.SIGINT)
+        except OSError:
+            pass
+    for _ in range(50):
+        if not any(alive(p) for p in rec["pids"]):
+            break
+        time.sleep(0.1)
+    d = ROOT / rec["id"]
+    mic, sysw, audio = d / "mic.wav", d / "system.wav", d / "audio.wav"
+    if sysw.exists() and mic.exists():
+        r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(mic), "-i", str(sysw), "-filter_complex",
+                            "[0:a]aformat=channel_layouts=mono[m];[1:a]aformat=channel_layouts=mono[s];"
+                            "[m][s]amix=inputs=2:duration=longest:normalize=0[a]", "-map", "[a]", str(audio)],
+                           capture_output=True, text=True)
+        if r.returncode == 0:
+            mic.unlink(missing_ok=True); sysw.unlink(missing_ok=True)
+    elif mic.exists():
+        mic.replace(audio)
+    m = meta_of(d)
+    m["duration"] = round(duration(audio), 1) if audio.exists() else 0
+    (d / "meta.json").write_text(json.dumps({k: v for k, v in m.items() if k not in ("transcript", "path", "id")}, ensure_ascii=False))
+    s["recording"] = None
+    save_state(s)
+    st = status()
+    st["stopped"] = rec["id"]
+    return out(st)
+
+
+def cmd_list():
+    items = []
+    if ROOT.exists():
+        for d in sorted(ROOT.iterdir(), reverse=True):
+            if d.is_dir() and (d / "audio.wav").exists():
+                items.append(meta_of(d))
+    return out({"ok": True, "items": items[:100]})
+
+
+def cmd_transcribe(rid, model, lang):
+    d = ROOT / rid
+    if not (d / "audio.wav").exists():
+        return out({"ok": False, "error": "no such recording"})
+    s = load_state()
+    jobs = s.get("jobs") or {}
+    if rid in jobs and alive(jobs[rid].get("pid", 0)):
+        return out(status())
+    # whisper wants 16 kHz mono; voxtype prints a header, then a blank line, then the text
+    script = ('set -o pipefail; t="$1/audio.16k.wav"; ffmpeg -v error -y -i "$1/audio.wav" -ar 16000 -ac 1 "$t" && '
+              'voxtype -q --model "$2" --language "$3" transcribe "$t" 2>"$1/transcribe.err" '
+              '| awk \'seen{print} /^$/{seen=1}\' > "$1/transcript.tmp" && mv -f "$1/transcript.tmp" "$1/transcript.txt"; '
+              'rc=$?; rm -f "$t"; exit $rc')
+    p = subprocess.Popen(["bash", "-c", script, "_", str(d), model, lang], stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    jobs[rid] = {"pid": p.pid, "started": int(time.time()), "model": model}
+    s["jobs"] = jobs
+    save_state(s)
+    return out(status())
+
+
+def cmd_delete(rid):
+    d = ROOT / rid
+    if d.is_dir() and d.parent == ROOT:
+        shutil.rmtree(d)
+    return cmd_list()
+
+
+def cmd_rename(rid, title):
+    d = ROOT / rid
+    try:
+        m = json.loads((d / "meta.json").read_text())
+    except (OSError, ValueError):
+        m = {}
+    m["title"] = title.strip() or rid
+    (d / "meta.json").write_text(json.dumps(m, ensure_ascii=False))
+    return cmd_list()
+
+
+def cmd_download(model):
+    if model not in [m["name"] for m in CATALOG]:
+        return out({"ok": False, "error": "unknown model"})
+    s = load_state()
+    RUN.mkdir(parents=True, exist_ok=True)
+    p = subprocess.Popen(["voxtype", "setup", "--download", "--model", model, "--quiet"],
+                         stdout=subprocess.DEVNULL, stderr=open(RUN / "download.err", "w"), start_new_session=True)
+    s["download"] = {"pid": p.pid, "model": model}
+    save_state(s)
+    return out(status())
+
+
+def main():
+    a = sys.argv[1:]
+    c = a[0] if a else "status"
+    if c == "status":
+        return out(status())
+    if c == "start":
+        mic = a[a.index("--mic") + 1] if "--mic" in a else ""
+        return cmd_start("--system" in a, mic)
+    if c == "stop":
+        return cmd_stop()
+    if c == "list":
+        return cmd_list()
+    if c == "transcribe" and len(a) > 1:
+        return cmd_transcribe(a[1], a[2] if len(a) > 2 else "small", a[3] if len(a) > 3 else "auto")
+    if c == "delete" and len(a) > 1:
+        return cmd_delete(a[1])
+    if c == "rename" and len(a) > 2:
+        return cmd_rename(a[1], a[2])
+    if c == "download" and len(a) > 1:
+        return cmd_download(a[1])
+    print(__doc__, file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

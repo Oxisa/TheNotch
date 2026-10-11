@@ -1,8 +1,6 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
-import Quickshell.Wayland
-import Quickshell.Hyprland
 import qs.Commons
 import "../.."
 import "../../../osia.soundhub" as SH
@@ -29,6 +27,10 @@ NotchModule {
   function persist(values) { if (notch) notch.modulePersist("clock", values) }
   readonly property var entry: notch && notch.settings.modules && notch.settings.modules.clock ? notch.settings.modules.clock : ({})
   readonly property var cfg: Clock.readSettings(entry)
+  // digits: the theme's font, blackletter (the quotes' UnifrakturMaguntia) or a serif
+  FontLoader { id: gothic; source: Qt.resolvedUrl("../../../osia.dailyquote/fonts/UnifrakturMaguntia-Book.ttf") }
+  readonly property string digitStyle: String(opt("digits", "default"))
+  readonly property string digitFont: digitStyle === "gothic" ? gothic.name : digitStyle === "serif" ? "Noto Serif" : ""
 
   // first run: start from the Kronos plugin's settings (its bar entry)
   FileView { id: shellJson; path: Quickshell.env("HOME") + "/.config/omarchy/shell.json"; printErrors: false; blockLoading: true }
@@ -53,134 +55,107 @@ NotchModule {
   readonly property bool draws: active && notch !== null && notch.omarchyPlugins.length > 0 && !kronosOn
                                 && cfg.clockEnabled !== false
 
-  // which screens: all, the focused one, or one by name
-  readonly property string screenMode: String(opt("screenMode", "all"))
-  readonly property string focusedName: Hyprland.focusedMonitor ? String(Hyprland.focusedMonitor.name || "") : ""
-  readonly property var screens: {
-    var list = Quickshell.screens, out = []
-    for (var i = 0; i < list.length; i++) {
-      var n = String(list[i].name)
-      if (screenMode === "all" || (screenMode === "focused" && n === focusedName) || screenMode === n) out.push(list[i])
-    }
-    return out
-  }
-
-  // bar insets, as Kronos does (the bar may be hidden by the notch; a little
-  // extra margin then does no harm)
-  readonly property string barPos: notch && notch.shell && notch.shell.barConfig ? String(notch.shell.barConfig.position || "top") : "top"
-  readonly property bool barVertical: barPos === "left" || barPos === "right"
-  readonly property var insets: Clock.edgeInsets(cfg.position, barPos, barVertical,
-                                                  Math.round((barVertical ? Style.bar.sizeVertical : Style.bar.sizeHorizontal) + 14),
-                                                  cfg.barPadding)
-  readonly property var pos: Clock.parsePosition(cfg.position)
-
-  Variants {
-    model: cm.draws ? cm.screens : []
-    delegate: PanelWindow {
-      id: panel
-      required property var modelData
-      screen: modelData
-      anchors { top: true; bottom: true; left: true; right: true }
-      color: "transparent"
-      exclusionMode: ExclusionMode.Ignore
-      WlrLayershell.namespace: "osia-thenotch-clock"
-      WlrLayershell.layer: WlrLayer.Bottom
-      WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-      mask: Region {}                                  // click-through: the desktop keeps its clicks
-      readonly property var hyprMonitor: Hyprland.monitorFor(modelData)
-
-      Item {
-        id: host
-        width: face.implicitWidth
-        height: face.implicitHeight
-
-        // one placement timer per screen (upstream's single shared timer only
-        // ever placed the last screen to ask)
-        Timer { id: place; interval: 1; onTriggered: host.placeNow() }
-        function relayout() { place.restart() }
-        function placeNow() {
-          if (panel.width <= 0 || panel.height <= 0) return
-          var m = cm.cfg.margin, ins = cm.insets
-          var x, y
-          if (cm.pos.verticalAlign === "top") y = m + ins.top
-          else if (cm.pos.verticalAlign === "bottom") y = panel.height - height - m - ins.bottom
-          else y = (panel.height - height) / 2
-          if (cm.pos.edgeSide === "center") x = (panel.width - width) / 2
-          else if (cm.pos.edgeSide === "right") x = panel.width - width - m - ins.right
-          else x = m + ins.left
-          var p = Clock.clampPlacement(x, y, width, height, panel.width, panel.height)
-          host.x = p.x; host.y = p.y
-        }
-        Component.onCompleted: relayout()
-        onWidthChanged: relayout()
-        onHeightChanged: relayout()
-        Connections {
-          target: panel
-          function onWidthChanged() { host.relayout() }
-          function onHeightChanged() { host.relayout() }
-        }
-        Connections {
-          target: cm
-          function onCfgChanged() { host.relayout() }
-          function onInsetsChanged() { host.relayout() }
-        }
-
-        ClockFace {
-          id: face
-          width: implicitWidth
-          height: implicitHeight
-          active: panel.visible
-          availableWidth: panel.width
-          availableHeight: panel.height
-          screenMargin: cm.cfg.margin
-          screenInsets: cm.insets
-          scaleFactor: Clock.perMonitorScaleFactor(cm.cfg.scale, panel.height, cm.cfg.perMonitorScale, cm.cfg.scaleReferenceHeight)
-          hourScaleFactor: cm.cfg.hourScale
-          dateScaleFactor: cm.cfg.dateScale
-          subtimeScaleFactor: cm.cfg.subtimeScale
-          ringLabelScaleFactor: cm.cfg.ringLabelScale
-          minuteCapsuleScaleFactor: cm.cfg.minuteCapsuleScale
-          secondCapsuleScaleFactor: cm.cfg.secondCapsuleScale
-          screenRefreshRate: Clock.refreshRateForMonitor(panel.hyprMonitor)
-          position: cm.cfg.position
-          use24h: cm.cfg.use24h
-          showSeconds: cm.cfg.showSeconds
-          showDate: cm.cfg.showDate
-          accentMode: cm.cfg.accentMode
-          clockFont: cm.cfg.clockFont
-          labelFont: cm.cfg.labelFont
-          centerLayout: cm.cfg.centerLayout
-          ringDiameter: cm.cfg.ringDiameter
-          ringGap: cm.cfg.ringGap
-          ringArcDegrees: cm.cfg.ringArcDegrees
-          ringTransparency: cm.cfg.ringTransparency
-          hourColor: cm.cfg.hourColor
-          dateColor: cm.cfg.dateColor
-          minuteCapsuleColor: cm.cfg.minuteCapsuleColor
-          secondCapsuleColor: cm.cfg.secondCapsuleColor
-          minuteRingColor: cm.cfg.minuteRingColor
-          secondRingColor: cm.cfg.secondRingColor
-          ringLabelColor: cm.cfg.ringLabelColor
-          hourFont: cm.cfg.hourFont
-          dateFont: cm.cfg.dateFont
-          minuteCapsuleFont: cm.cfg.minuteCapsuleFont
-          secondCapsuleFont: cm.cfg.secondCapsuleFont
-          showHour: cm.cfg.showHour
-          showMinuteCapsule: cm.cfg.showMinuteCapsule
-          showSecondCapsule: cm.cfg.showSecondCapsule
-          showRingLabels: cm.cfg.showRingLabels
-          showRings: cm.cfg.showRings
-          hourOffsetX: cm.cfg.hourOffsetX
-          hourOffsetY: cm.cfg.hourOffsetY
-          dateOffsetX: cm.cfg.dateOffsetX
-          dateOffsetY: cm.cfg.dateOffsetY
-          minuteCapsuleAngleOffset: cm.cfg.minuteCapsuleAngleOffset
-          secondCapsuleAngleOffset: cm.cfg.secondCapsuleAngleOffset
-          minuteCapsuleRadiusOffset: cm.cfg.minuteCapsuleRadiusOffset
-          secondCapsuleRadiusOffset: cm.cfg.secondCapsuleRadiusOffset
-          ringRotationOffset: cm.cfg.ringRotationOffset
-        }
+  // content for TheNotch's widget layer. Where it's put decides which way
+  // the rings open: toward the middle of the screen, as Kronos does for its
+  // nine positions.
+  deskEnabled: !kronosOn && cfg.clockEnabled !== false
+  function setDeskEnabled(on) { persist({ clockEnabled: on }) }
+  deskDefault: ({ x: 0.80, y: 0.04 })
+  deskWidget: Component {
+    Item {
+      id: w
+      property real fx: 0.9
+      property real fy: 0.1
+      property real screenW: 1920
+      property real screenH: 1080
+      property bool editing: false
+      property bool deskVertical: false              // turned 90°: digits stack, no tilt
+      readonly property bool deskShown: true
+      readonly property string zone: (fy < 0.34 ? "top" : fy > 0.66 ? "bottom" : "middle") + "-"
+                                     + (fx < 0.34 ? "left" : fx > 0.66 ? "right" : "center")
+      readonly property string look: String(cm.opt("style", "kronos"))   // kronos | type | flip | day
+      // a card behind the clock, like the other widgets (0 = none, as before)
+      readonly property real bgAlpha: Number(cm.opt("bgOpacity", 0))
+      readonly property real pad: bgAlpha > 0 ? Style.space(18) : 0
+      width: (look === "kronos" ? face.implicitWidth : styles.width) + pad * 2
+      height: (look === "kronos" ? face.implicitHeight : styles.height) + pad * 2
+      Rectangle {
+        anchors.fill: parent
+        visible: w.bgAlpha > 0
+        radius: Style.space(18)
+        color: Qt.rgba(Color.background.r, Color.background.g, Color.background.b, w.bgAlpha)
+        border.width: 1
+        border.color: Qt.rgba(Color.foreground.r, Color.foreground.g, Color.foreground.b, 0.08)
       }
+      ClockStyles {
+        id: styles
+        x: w.pad; y: w.pad
+        digitFont: cm.digitFont
+        visible: w.look !== "kronos"
+        look: w.look === "kronos" ? "type" : w.look
+        use24h: cm.cfg.use24h
+        showDate: cm.cfg.showDate
+        size: cm.cfg.scale
+        ru: cm.ru
+        vertical: w.deskVertical
+      }
+    ClockFace {
+      id: face
+      x: w.pad; y: w.pad
+      visible: w.look === "kronos"
+      width: implicitWidth
+      height: implicitHeight
+      active: true
+      availableWidth: w.screenW
+      availableHeight: w.screenH
+      screenMargin: cm.cfg.margin
+      screenInsets: ({ top: 0, right: 0, bottom: 0, left: 0 })
+      scaleFactor: Clock.perMonitorScaleFactor(cm.cfg.scale, w.screenH, cm.cfg.perMonitorScale, cm.cfg.scaleReferenceHeight)
+      hourScaleFactor: cm.cfg.hourScale
+      dateScaleFactor: cm.cfg.dateScale
+      subtimeScaleFactor: cm.cfg.subtimeScale
+      ringLabelScaleFactor: cm.cfg.ringLabelScale
+      minuteCapsuleScaleFactor: cm.cfg.minuteCapsuleScale
+      secondCapsuleScaleFactor: cm.cfg.secondCapsuleScale
+      screenRefreshRate: 60
+      position: w.zone
+      use24h: cm.cfg.use24h
+      showSeconds: cm.cfg.showSeconds
+      showDate: cm.cfg.showDate
+      accentMode: cm.cfg.accentMode
+      clockFont: cm.cfg.clockFont
+      labelFont: cm.cfg.labelFont
+      centerLayout: cm.cfg.centerLayout
+      ringDiameter: cm.cfg.ringDiameter
+      ringGap: cm.cfg.ringGap
+      ringArcDegrees: cm.cfg.ringArcDegrees
+      ringTransparency: cm.cfg.ringTransparency
+      hourColor: cm.cfg.hourColor
+      dateColor: cm.cfg.dateColor
+      minuteCapsuleColor: cm.cfg.minuteCapsuleColor
+      secondCapsuleColor: cm.cfg.secondCapsuleColor
+      minuteRingColor: cm.cfg.minuteRingColor
+      secondRingColor: cm.cfg.secondRingColor
+      ringLabelColor: cm.cfg.ringLabelColor
+      hourFont: cm.digitFont || cm.cfg.hourFont
+      dateFont: cm.digitFont || cm.cfg.dateFont
+      minuteCapsuleFont: cm.digitFont || cm.cfg.minuteCapsuleFont
+      secondCapsuleFont: cm.digitFont || cm.cfg.secondCapsuleFont
+      showHour: cm.cfg.showHour
+      showMinuteCapsule: cm.cfg.showMinuteCapsule
+      showSecondCapsule: cm.cfg.showSecondCapsule
+      showRingLabels: cm.cfg.showRingLabels
+      showRings: cm.cfg.showRings
+      hourOffsetX: cm.cfg.hourOffsetX
+      hourOffsetY: cm.cfg.hourOffsetY
+      dateOffsetX: cm.cfg.dateOffsetX
+      dateOffsetY: cm.cfg.dateOffsetY
+      minuteCapsuleAngleOffset: cm.cfg.minuteCapsuleAngleOffset
+      secondCapsuleAngleOffset: cm.cfg.secondCapsuleAngleOffset
+      minuteCapsuleRadiusOffset: cm.cfg.minuteCapsuleRadiusOffset
+      secondCapsuleRadiusOffset: cm.cfg.secondCapsuleRadiusOffset
+      ringRotationOffset: cm.cfg.ringRotationOffset
+    }
     }
   }
 }

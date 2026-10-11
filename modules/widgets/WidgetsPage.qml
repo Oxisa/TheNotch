@@ -13,6 +13,29 @@ Column {
   readonly property string ff: Style.font.family
   readonly property bool ru: notch && notch.lang === "ru"
 
+  // the layout editor: drag the widgets around on the desktop itself
+  SH.HubCard {
+    width: parent.width
+    height: arrangeRow.implicitHeight + SH.HubStyle.pad * 2
+    fg: page.fg; accent: page.accent
+    SH.HubRow {
+      id: arrangeRow
+      x: SH.HubStyle.pad; y: SH.HubStyle.pad
+      width: parent.width - SH.HubStyle.pad * 2
+      title: page.ru ? "Раскладка на рабочем столе" : "Desktop layout"
+      hint: page.ru ? "Сетка поверх рабочего стола: тяните виджеты, они липнут к сетке, краям и друг к другу; на каждом мониторе своя раскладка"
+                    : "A grid over the desktop: drag the widgets, they stick to the grid, the edges and each other; each monitor has its own layout"
+      fg: page.fg; fontFamily: page.ff
+      SH.HubChip {
+        icon: "\u{f072c}"
+        label: page.ru ? "Расставить" : "Arrange"
+        on: true
+        fg: page.fg; accent: page.accent; ink: page.bgc; fontFamily: page.ff
+        onClicked: page.notch.editLayout(true)
+      }
+    }
+  }
+
   Repeater {
     model: page.notch ? page.notch.widgetModules : []
     delegate: Column {

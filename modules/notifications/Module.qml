@@ -17,6 +17,7 @@ NotchModule {
   icon: "󰂚"
   description: notch && notch.lang === "ru" ? "Всплывающие уведомления из чёлки и их история" : "Pop-ups out of the notch and their history"
   pageWidth: 440
+  noIcon: true
   page: Component { Page { mod: nmod } }
 
   readonly property string dir: Quickshell.env("HOME") + "/.local/state/omarchy/notifications/"

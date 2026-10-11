@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
 import "../../../osia.soundhub" as SH
+import "../../../osia.dailyquote/settings.js" as DQ
 
 // Quotes' section in the settings window: how often the quote changes and
 // the translation language (the desktop quote is under Settings → Widgets).
@@ -24,6 +25,28 @@ Column {
       width: parent.width - SH.HubStyle.pad * 2
       spacing: Style.space(10)
       SH.HubRow {
+        title: page.mod ? page.mod.t("sources") : ""; hint: page.mod ? page.mod.t("sourcesHint") : ""
+        fg: page.fg; fontFamily: page.ff
+      }
+      Flow {
+        width: parent.width
+        spacing: Style.space(6)
+        Repeater {
+          model: ["sayings", "bible"]
+          delegate: SH.HubChip {
+            required property string modelData
+            readonly property bool picked: page.mod ? page.mod.cfg.sources.indexOf(modelData) >= 0 : modelData === "sayings"
+            icon: picked ? "󰄬" : "󰅖"
+            label: page.mod ? page.mod.t(modelData) : modelData
+            on: picked
+            subtle: true
+            h: Style.space(26)
+            fg: page.fg; accent: page.accent; fontFamily: page.ff
+            onClicked: page.mod.toggleSource(modelData)
+          }
+        }
+      }
+      SH.HubRow {
         title: page.mod ? page.mod.t("change") : ""; fg: page.fg; fontFamily: page.ff
         SH.HubSelect {
           width: Style.space(170); showLabel: false
@@ -41,6 +64,28 @@ Column {
           value: page.mod ? page.mod.cfg.lang : "ru"
           foreground: page.fg; accent: page.accent; background: page.bgc; fontFamily: page.ff
           onChanged: function(v) { page.mod.set("lang", v) }
+        }
+      }
+      SH.HubRow {
+        title: page.mod ? page.mod.t("origLangs") : ""; hint: page.mod ? page.mod.t("origLangsHint") : ""
+        fg: page.fg; fontFamily: page.ff
+      }
+      Flow {
+        width: parent.width
+        spacing: Style.space(6)
+        Repeater {
+          model: DQ.LANGS
+          delegate: SH.HubChip {
+            required property string modelData
+            readonly property bool shownLang: page.mod ? page.mod.cfg.hideLangs.indexOf(modelData) < 0 : true
+            icon: shownLang ? "󰄬" : "󰅖"
+            label: DQ.langName(modelData, page.mod && page.mod.notch ? page.mod.notch.lang : "en")
+            on: shownLang
+            subtle: true
+            h: Style.space(26)
+            fg: page.fg; accent: page.accent; fontFamily: page.ff
+            onClicked: page.mod.toggleLang(modelData)
+          }
         }
       }
     }
