@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
-import "../osia.soundhub" as SH
+import "vendor/soundhub" as SH
+import "fonts"
 
 // Tabs inside a settings page: a row of underlined labels. `tabs` is a list
 // of { id, label, icon }; `current` is the open one.
@@ -10,7 +11,7 @@ Row {
   property string current: tabs.length ? tabs[0].id : ""
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.ui
   spacing: Style.space(18)
   height: Style.space(34)
   Repeater {

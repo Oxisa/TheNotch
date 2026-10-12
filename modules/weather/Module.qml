@@ -3,7 +3,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import "../.."
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
 
 // Weather: the current weather for a city you pick, from Open-Meteo (no key,
 // no account). A desktop widget in one of three looks — capsule, card or a

@@ -1,7 +1,8 @@
 import QtQuick
 import Quickshell
 import qs.Commons
-import "../osia.soundhub" as SH
+import "vendor/soundhub" as SH
+import "fonts"
 
 // The "Look" tab for your own widget in the layout editor: its name, its
 // content (a template, a command, a picture or a note), the font, and Delete.
@@ -15,7 +16,7 @@ Column {
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
   readonly property color bgc: Color.background
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.ui
   readonly property bool ru: notch !== null && notch.lang === "ru"
   function t(a, b) { return ru ? a : b }
   function setCfg(v) { var c = {}; for (var k in cfg) c[k] = cfg[k]; for (var k2 in v) c[k2] = v[k2]; notch.patchCustom(id_, { cfg: c }) }

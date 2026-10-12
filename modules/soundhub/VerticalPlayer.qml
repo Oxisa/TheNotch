@@ -1,7 +1,8 @@
 import QtQuick
 import Quickshell.Widgets
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // "Now playing" for a widget turned 90°: the cover on top, then title,
 // artist and the buttons, all upright.
@@ -13,7 +14,7 @@ Column {
   readonly property bool playing: player !== null && !!player.isPlaying
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.desk
   function act(name) { if (media) media.runAction(name, false, media.playerKey(player)) }
   property real coverSize: Style.space(130)
   width: Style.space(170)

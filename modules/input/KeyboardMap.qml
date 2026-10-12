@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // A keyboard drawn on screen for the key bindings: pick the modifiers on top
 // (SUPER by default); keys that do something with them light up, hovering
@@ -14,7 +15,7 @@ Column {
   signal pick(string combo)
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.ui
   spacing: Style.space(8)
   readonly property real unit: Math.floor((width - Style.space(4) * 14) / 15)
 

@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import Quickshell.Hyprland
+import Quickshell.Widgets
 import Quickshell.Io
 import qs.Commons
 
@@ -54,16 +55,20 @@ PanelWindow {
   // -------------------------------------------------------- target sizes
   readonly property var cur: notch ? notch.current : null
   readonly property var live: notch ? notch.liveModule : null
+  readonly property var peekMod: notch ? notch.peekModule : null
+  // the mic / camera dots (Privacy) take this much room at the far end
+  readonly property bool priv: notch !== null && notch.privacyShown
   property real pageW: cur ? Style.space(cur.pageWidth) : Style.space(440)
   property real pageH: expandedPage.item ? expandedPage.item.implicitHeight : Style.space(200)
   readonly property real railH: Style.space(62)
 
   function sizeFor(m) {
+    if (notch && notch.dropHover && m !== "expanded") return vertical ? { w: Style.space(120), h: Style.space(240) } : { w: Style.space(340), h: Style.space(60) }
     if (m === "expanded") {
       return { w: Math.min(maxW, pageW + pad * 2), h: Math.min(maxH, railH + pageH + pad * 2 + Style.space(8)) }
     }
     if (m === "peek") {
-      var pw = live && live.peekWidth ? Style.space(live.peekWidth) : Style.space(380)
+      var pw = peekMod && peekMod.peekWidth ? Style.space(peekMod.peekWidth) : Style.space(380)
       var ph = peekLoader.item ? peekLoader.item.implicitHeight : Style.space(100)
       return { w: pw + pad * 2, h: ph + pad * 2 }
     }
@@ -71,15 +76,10 @@ PanelWindow {
       var big = notch && notch.currentEvent && notch.currentEvent.big
       return big ? { w: Style.space(400), h: Style.space(78) } : { w: Style.space(320), h: Style.space(56) }
     }
-    if (m === "live") return vertical ? { w: thin + Style.space(4), h: Style.space(190) } : { w: Style.space(280), h: thin + Style.space(2) }
-    return vertical ? { w: thin, h: Style.space(earExtra ? 210 : 150) } : { w: Style.space(earExtra ? 270 : 200), h: thin }
-  }
-  // anything a module wants next to the clock (weather); widens the idle notch
-  readonly property string earExtra: {
-    var ms = notch ? notch.modules : []
-    var out = []
-    for (var i = 0; i < ms.length; i++) if (ms[i].active && ms[i].ear) out.push(ms[i].ear)
-    return out.join("   ")
+    // collapsed: as wide as the two sides need, kept symmetric around the middle
+    var a = vertical ? sideA.implicitHeight : sideA.implicitWidth, b = vertical ? sideB.implicitHeight : sideB.implicitWidth
+    var len = Math.max(Style.space(m === "live" ? 260 : 190), 2 * Math.max(a, b) + Style.space(28) + Style.space(40))
+    return vertical ? { w: thin + (m === "live" ? Style.space(4) : 0), h: len } : { w: len, h: thin + (m === "live" ? Style.space(2) : 0) }
   }
   readonly property var target: sizeFor(mode)
   readonly property bool big: mode === "expanded" || mode === "peek"
@@ -149,14 +149,23 @@ PanelWindow {
     Fillet { visible: !win.vertical; flip: win.edge === "bottom"; fill: win.fill; x: -width; y: win.edge === "top" ? 0 : parent.height - height }
     Fillet { visible: !win.vertical; flip: win.edge === "bottom"; mirrored: true; fill: win.fill; x: parent.width; y: win.edge === "top" ? 0 : parent.height - height }
 
-    // click opens/closes; controls inside take their own clicks first
+    // click opens/closes; controls inside take their own clicks first;
+    // middle click: the microphone on / off, whatever the notch shows
     MouseArea {
       anchors.fill: parent
-      onClicked: win.mode === "event" ? win.notch.clickEvent() : win.notch.expand()
+      acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+      onClicked: function(mouse) {
+        if (mouse.button === Qt.MiddleButton) win.notch.toggleMic()
+        else if (win.mode === "event") win.notch.clickEvent()
+        else win.notch.expand()
+      }
     }
     HoverHandler { onHoveredChanged: win.notch.setPointerInside(hovered) }
 
     // -------------------------------------------------- collapsed: ears
+    // Two sides, each a list of items from Settings → Personalisation →
+    // Notch (Service.slots). Something live (music, a download, a timer)
+    // takes a side over; the mic/camera dots and "mic off" stay.
     Item {
       id: ears
       anchors.fill: parent
@@ -164,61 +173,194 @@ PanelWindow {
       anchors.rightMargin: win.vertical ? 0 : Style.space(14)
       anchors.topMargin: win.vertical ? Style.space(12) : 0
       anchors.bottomMargin: win.vertical ? Style.space(12) : 0
-      opacity: win.mode === "idle" || win.mode === "live" ? 1 : 0
+      opacity: (win.mode === "idle" || win.mode === "live") && !(win.notch && win.notch.dropHover) ? 1 : 0
       visible: opacity > 0
       Behavior on opacity { NumberAnimation { duration: 180 } }
 
       readonly property bool isLive: win.mode === "live" && win.live !== null
-      readonly property string ws: Hyprland.focusedWorkspace ? String(Hyprland.focusedWorkspace.id) : ""
+      readonly property var ws: Hyprland.focusedWorkspace
       property date now: new Date()
       Timer { interval: 1000; running: ears.visible; repeat: true; triggeredOnStart: true; onTriggered: ears.now = new Date() }
       readonly property string hh: Qt.formatTime(now, "HH")
       readonly property string mm: Qt.formatTime(now, "mm")
+      readonly property var wsMod: win.notch ? win.notch.moduleById("workspaces") : null
+      readonly property var weatherMod: win.notch ? win.notch.moduleById("weather") : null
+      readonly property bool micOff: win.notch !== null && win.notch.micMuted
 
-      component Ws: Rectangle {
-        width: Math.max(height, wsText.implicitWidth + Style.space(12)); height: Style.space(20)
-        radius: height / 2
-        color: Qt.rgba(win.accent.r, win.accent.g, win.accent.b, 0.22)
-        Text {
-          id: wsText
-          anchors.centerIn: parent
-          text: ears.ws
-          color: win.accent
-          font.family: win.ff; font.pixelSize: Style.font.caption; font.bold: true
+      // something live (music, a download) joins a side on the inner end,
+      // next to the middle; your own items stay
+      function itemsFor(side) {
+        var list = win.notch ? (win.notch.slots[side] || []) : []
+        var live = side === "left" ? (isLive && win.live.liveLeft) : (isLive && win.live.liveRight)
+        if (!live) return list
+        return side === "left" ? list.concat(["live"]) : ["live"].concat(list)
+      }
+      function compFor(key, side) {
+        if (key === "live") return side === "left" ? win.live.liveLeft : win.live.liveRight
+        return { workspace: wsComp, apps: appsComp, shelf: shelfComp, clock: clockComp, weather: weatherComp, layout: layoutComp, privacy: privacyComp, mic: micComp }[key] || null
+      }
+      readonly property var shelfMod: win.notch ? win.notch.moduleById("shelf") : null
+
+      component Side: Grid {
+        id: side
+        property string which: "left"
+        rows: win.vertical ? 99 : 1
+        columns: win.vertical ? 1 : 99
+        spacing: Style.space(8)
+        horizontalItemAlignment: Grid.AlignHCenter
+        verticalItemAlignment: Grid.AlignVCenter
+        Repeater {
+          model: ears.itemsFor(side.which)
+          delegate: Loader {
+            required property string modelData
+            sourceComponent: ears.compFor(modelData, side.which)
+            // an item hides itself with `shown: false` (its own `visible` would follow the Loader's)
+            visible: item !== null && item.shown !== false
+          }
         }
       }
-
-      // left / top ear
-      Loader {
-        id: earA
+      Side {
+        id: sideA
+        which: "left"
         anchors.left: win.vertical ? undefined : parent.left
         anchors.verticalCenter: win.vertical ? undefined : parent.verticalCenter
         anchors.top: win.vertical ? parent.top : undefined
         anchors.horizontalCenter: win.vertical ? parent.horizontalCenter : undefined
-        sourceComponent: ears.isLive && win.live.liveLeft ? win.live.liveLeft : wsComp
       }
-      // right / bottom ear
-      Loader {
-        id: earB
+      Side {
+        id: sideB
+        which: "right"
         anchors.right: win.vertical ? undefined : parent.right
         anchors.verticalCenter: win.vertical ? undefined : parent.verticalCenter
         anchors.bottom: win.vertical ? parent.bottom : undefined
         anchors.horizontalCenter: win.vertical ? parent.horizontalCenter : undefined
-        sourceComponent: ears.isLive && win.live.liveRight ? win.live.liveRight : clockComp
       }
-      Component { id: wsComp; Ws {} }
-      readonly property string extra: win.earExtra
+
+      // ---- the items
+      Component {
+        id: wsComp
+        Rectangle {
+          readonly property string name: ears.wsMod && ears.ws ? ears.wsMod.nameOf(ears.ws) : ""
+          width: Math.max(height, wsText.implicitWidth + Style.space(12)); height: Style.space(20)
+          radius: height / 2
+          color: Qt.rgba(win.accent.r, win.accent.g, win.accent.b, 0.22)
+          Text {
+            id: wsText
+            anchors.centerIn: parent
+            text: ears.ws ? String(ears.ws.id) + (parent.name && !win.vertical ? " " + parent.name : "") : ""
+            color: win.accent
+            font.family: win.ff; font.pixelSize: Style.font.caption; font.bold: true
+          }
+          // the wheel walks the workspaces; a click opens the overview
+          WheelHandler { onWheel: function(ev) { Hyprland.dispatch('hl.dsp.focus({ workspace = "' + (ev.angleDelta.y < 0 ? "e+1" : "e-1") + '" })') } }
+          TapHandler { onTapped: Quickshell.execDetached(["omarchy-shell", "osia.thenotch", "overview"]) }
+        }
+      }
+      Component {
+        id: appsComp
+        Grid {
+          rows: win.vertical ? 4 : 1; columns: win.vertical ? 1 : 4
+          spacing: Style.space(4)
+          readonly property bool shown: !!(ears.ws && ears.ws.toplevels && ears.ws.toplevels.values.length)
+          Repeater {
+            id: apps
+            model: ears.ws && ears.ws.toplevels ? ears.ws.toplevels.values.slice(0, 4) : []
+            delegate: IconImage {
+              required property var modelData
+              width: Style.space(16); height: width
+              source: ears.wsMod ? ears.wsMod.iconOf(modelData) : ""
+            }
+          }
+        }
+      }
       Component {
         id: clockComp
         Text {
-          text: win.vertical ? (ears.extra ? ears.extra.replace(" ", "\n") + "\n" : "") + ears.hh + "\n" + ears.mm
-                             : (ears.extra ? ears.extra + "   " : "") + ears.hh + ":" + ears.mm
+          text: win.vertical ? ears.hh + "\n" + ears.mm : ears.hh + ":" + ears.mm
           horizontalAlignment: Text.AlignHCenter
           lineHeight: 0.9
           color: win.fg
           font.family: win.ff; font.pixelSize: Style.font.body; font.bold: true
         }
       }
+      Component {
+        id: weatherComp
+        Text {
+          readonly property bool shown: !!(ears.weatherMod && ears.weatherMod.active && ears.weatherMod.ear)
+          text: ears.weatherMod ? (win.vertical ? String(ears.weatherMod.ear).replace(" ", "\n") : ears.weatherMod.ear) : ""
+          horizontalAlignment: Text.AlignHCenter
+          color: win.fg
+          font.family: win.ff; font.pixelSize: Style.font.body; font.bold: true
+        }
+      }
+      Component {
+        id: layoutComp
+        Text {
+          readonly property bool shown: !!(win.notch && win.notch.kbLayout)
+          text: win.notch ? win.notch.kbLayout : ""
+          color: Qt.darker(win.fg, 1.2)
+          font.family: win.ff; font.pixelSize: Style.font.caption; font.bold: true
+        }
+      }
+      Component {
+        id: shelfComp
+        Row {
+          readonly property bool shown: !!(ears.shelfMod && ears.shelfMod.active && ears.shelfMod.items.length)
+          spacing: Style.space(3)
+          Text { anchors.verticalCenter: parent.verticalCenter; text: "\u{f0120}"; color: win.accent; font.family: win.ff; font.pixelSize: Style.font.body }
+          Text { anchors.verticalCenter: parent.verticalCenter; text: ears.shelfMod ? ears.shelfMod.items.length : ""; color: win.fg; font.family: win.ff; font.pixelSize: Style.font.caption; font.bold: true }
+          TapHandler { onTapped: win.notch.openModule("shelf") }
+        }
+      }
+      Component {
+        id: micComp
+        Text {
+          readonly property bool shown: ears.micOff
+          text: "\u{f036d}"; color: Color.urgent
+          font.family: win.ff; font.pixelSize: Style.font.body
+        }
+      }
+      Component {
+        id: privacyComp
+        Grid {
+          id: privDots
+          readonly property bool shown: win.priv
+          rows: win.vertical ? 2 : 1
+          columns: win.vertical ? 1 : 2
+          spacing: Style.space(4)
+          component Dot: Rectangle {
+            property color tone: "orange"
+            property string glyph: ""
+            width: Style.space(18); height: width; radius: width / 2
+            color: Qt.rgba(tone.r, tone.g, tone.b, 0.22)
+            Text { anchors.centerIn: parent; text: parent.glyph; color: parent.tone; font.family: win.ff; font.pixelSize: Style.font.caption - 1 }
+            SequentialAnimation on opacity {
+              loops: Animation.Infinite; running: privDots.visible
+              NumberAnimation { to: 0.55; duration: 1200; easing.type: Easing.InOutSine }
+              NumberAnimation { to: 1; duration: 1200; easing.type: Easing.InOutSine }
+            }
+          }
+          Dot { visible: win.priv && win.notch.privacy.mic.length > 0; tone: win.notch && win.notch.privacy ? win.notch.privacy.micColor : "orange"; glyph: "\u{f036c}" }
+          Dot { visible: win.priv && win.notch.privacy.cam.length > 0; tone: win.notch && win.notch.privacy ? win.notch.privacy.camColor : "green"; glyph: "\u{f0567}" }
+          HoverHandler { onHoveredChanged: if (hovered) win.notch.privacyHover = true }
+        }
+      }
+    }
+
+    // ---------------------------------------------- drop onto the shelf
+    DropArea {
+      anchors.fill: parent
+      enabled: win.notch !== null && win.mode !== "expanded" && ears.shelfMod !== null && ears.shelfMod.active
+      onEntered: win.notch.dropHover = true
+      onExited: win.notch.dropHover = false
+      onDropped: function(ev) { win.notch.dropHover = false; ears.shelfMod.take(ev.urls, ev.text); ev.acceptProposedAction() }
+    }
+    Row {
+      visible: win.notch !== null && win.notch.dropHover
+      anchors.centerIn: parent
+      spacing: Style.space(10)
+      Text { anchors.verticalCenter: parent.verticalCenter; text: "\u{f0120}"; color: win.accent; font.family: win.ff; font.pixelSize: Style.space(22) }
+      Text { anchors.verticalCenter: parent.verticalCenter; text: win.notch && win.notch.lang === "ru" ? "Положить на полку" : "Put it on the shelf"; color: win.fg; font.family: win.ff; font.pixelSize: Style.font.body; font.bold: true }
     }
 
     // ---------------------------------------------------------- event
@@ -316,8 +458,8 @@ PanelWindow {
       id: peekLoader
       x: win.pad; y: win.pad
       width: island.width - win.pad * 2
-      active: win.live !== null && win.live.peek !== null
-      sourceComponent: win.live ? win.live.peek : null
+      active: win.peekMod !== null
+      sourceComponent: win.peekMod ? win.peekMod.peek : null
       opacity: win.mode === "peek" ? 1 : 0
       visible: opacity > 0
       Behavior on opacity { NumberAnimation { duration: 200 } }
@@ -426,25 +568,8 @@ PanelWindow {
           onClicked: win.notch.openModule(win.notch.lastTab)
         }
       }
-      // the other dashboards: small icons before the gear
-      Row {
-        id: icons
-        anchors.right: gear.left; anchors.rightMargin: Style.space(8)
-        y: (rail.height - height) / 2
-        spacing: Style.space(4)
-        Repeater {
-          model: win.notch ? win.notch.iconModules : []
-          delegate: Rectangle {
-            id: ib
-            required property var modelData
-            readonly property bool on: win.cur === modelData
-            width: Style.space(30); height: width; radius: width / 2
-            color: on ? win.accent : Qt.rgba(win.fg.r, win.fg.g, win.fg.b, ibMouse.containsMouse ? 0.12 : 0.05)
-            Text { anchors.centerIn: parent; text: ib.modelData.icon; color: ib.on ? win.fill : win.fg; font.family: win.ff; font.pixelSize: Style.font.body }
-            MouseArea { id: ibMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: win.notch.openModule(ib.modelData.moduleId) }
-          }
-        }
-      }
+      // the other dashboards are tools in Centre now; this keeps the anchor
+      Item { id: icons; anchors.right: gear.left; anchors.rightMargin: Style.space(8); width: 0; height: 30 }
       // gear: the settings window (sections for every module)
       Rectangle {
         id: gear
@@ -466,7 +591,7 @@ PanelWindow {
           anchors.fill: parent
           hoverEnabled: true
           cursorShape: Qt.PointingHandCursor
-          onClicked: win.notch.openSettings(win.cur ? win.cur.moduleId : "settings")
+          onClicked: win.notch.openSettings("")
         }
       }
       Text {

@@ -7,6 +7,8 @@
   bt scan [SECONDS]           discover nearby devices for a while (background)
   bt connect|disconnect|pair|remove|trust MAC
   printer default NAME | printer test NAME | printer cancel JOB
+  printer discover          network printers announced over Avahi (IPP)
+  printer add NAME URI      add one driverless (IPP Everywhere); asks for the password (pkexec)
   camera preview DEVICE       a live preview window (mpv)
 
 Every command prints one JSON object.
@@ -149,6 +151,22 @@ def main():
                 if step[0] != "trust" and (code != 0 or "Failed" in o):
                     return out({"ok": False, "error": (o.strip().splitlines() or [e])[-1]})
             return out({"ok": True})
+    if c == "printer" and len(a) > 1 and a[1] == "discover":
+        _, o, _ = run(["avahi-browse", "-rtp", "_ipp._tcp", "_ipps._tcp"], timeout=12)
+        found = {}
+        for line in o.splitlines():
+            f = line.split(";")
+            if len(f) < 10 or f[0] != "=" or f[2] != "IPv4":
+                continue
+            txt = dict(re.findall(r'"([^"=]+)=([^"]*)"', f[9]))
+            scheme = "ipps" if "_ipps" in f[4] else "ipp"
+            uri = f"{scheme}://{f[7]}:{f[8]}/{txt.get('rp', 'ipp/print')}"
+            found.setdefault(f[3], {"name": f[3], "uri": uri, "model": txt.get("ty", ""), "host": f[6]})
+        return out({"ok": True, "found": list(found.values())})
+    if c == "printer" and len(a) > 3 and a[1] == "add":
+        name = re.sub(r"[^A-Za-z0-9_-]+", "_", a[2]).strip("_")[:60] or "Printer"
+        code, _, e = run(["pkexec", "lpadmin", "-p", name, "-E", "-v", a[3], "-m", "everywhere"], timeout=90)
+        return out({"ok": code == 0, "error": e.strip()})
     if c == "printer" and len(a) > 2:
         if a[1] == "default":
             code, _, e = run(["lpoptions", "-d", a[2]]); return out({"ok": code == 0, "error": e})

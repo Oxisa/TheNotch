@@ -1,7 +1,8 @@
 import QtQuick
 import qs.Commons
 import "../.."
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // Settings → Bluetooth & devices → Headphones: the headphones' card on top
 // (model, battery, connection); tabs Noise · Sound · Device.
@@ -12,7 +13,7 @@ Column {
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
   readonly property color bgc: Color.background
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.ui
   function t(a, b) { return mod ? mod.t(a, b) : b }
   readonly property var st: mod ? mod.st : ({})
   readonly property bool ok: !!(mod && mod.present)

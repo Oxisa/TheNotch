@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import "../../../fonts"
 
 Column {
   id: root
@@ -7,8 +8,8 @@ Column {
   property var parts
   property bool use24h: true
   property real uiScale: 1
-  property string clockFont: Style.font.family
-  property string labelFont: Style.font.family
+  property string clockFont: Fonts.desk
+  property string labelFont: Fonts.desk
   property real dateFontSize: 11
   property real dayFontSize: 18
   property real ampmFontSize: 10

@@ -21,7 +21,7 @@ NotchModule {
   sectionOrder: 1
   settingsPage: Component { DisplaysSettings { mod: dm } }
 
-  readonly property string backend: Quickshell.env("HOME") + "/.config/omarchy/plugins/omarchy-display/bin/display-settings"
+  readonly property string backend: decodeURIComponent(Qt.resolvedUrl("../../vendor/display/bin/display-settings").toString().replace(/^file:\/\//, ""))
   property bool hasBackend: true
   property var displays: []
   property var brightness: ({})                  // name -> percent | -1 (no DDC)

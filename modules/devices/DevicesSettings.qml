@@ -2,7 +2,8 @@ import QtQuick
 import Quickshell
 import qs.Commons
 import "../.."
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // Settings → Bluetooth & devices.
 // Everything on one page: Bluetooth on/off, your devices (connect, battery), nearby devices to pair, batteries, printers, cameras; also MAC addresses, trust, the adapter's name, print jobs, CUPS.
@@ -14,7 +15,7 @@ Column {
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
   readonly property color bgc: Color.background
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.ui
   function t(a, b) { return mod ? mod.t(a, b) : b }
   readonly property var st: mod ? mod.st : ({})
   readonly property var mine: (st.devices || []).filter(function(d) { return d.paired })
@@ -206,6 +207,25 @@ Column {
             onClicked: page.mod.cmd(["printer", "test", modelData.name])
           }
         }
+      }
+    }
+    // network printers: found over Avahi, added without a driver
+    SH.HubRow {
+      width: parent.width
+      title: page.t("Найти принтеры в сети", "Find network printers")
+      hint: page.mod && page.mod.busy.indexOf("discover") >= 0 ? page.t("Ищу…", "Searching…") : page.mod && page.mod.found.length ? page.t("Найдено: ", "Found: ") + page.mod.found.length : page.t("Принтеры с AirPrint / IPP Everywhere, без драйверов", "AirPrint / IPP Everywhere printers, no drivers needed")
+      fg: page.fg; fontFamily: page.ff
+      SH.HubChip { icon: "\u{f0349}"; label: page.t("Искать", "Search"); fg: page.fg; accent: page.accent; fontFamily: page.ff; onClicked: page.mod.cmd(["printer", "discover"]) }
+    }
+    Repeater {
+      model: page.mod ? page.mod.found.filter(function(f) { return !(page.st.printers && page.st.printers.list.some(function(p) { return p.name === f.name.replace(/[^A-Za-z0-9_-]+/g, "_") })) }) : []
+      delegate: SH.HubRow {
+        required property var modelData
+        width: parent.width
+        icon: "\u{f042a}"
+        title: modelData.name; hint: (modelData.model ? modelData.model + " · " : "") + modelData.host
+        fg: page.fg; fontFamily: page.ff
+        SH.HubChip { icon: "\u{f0415}"; label: page.t("Добавить", "Add"); on: true; fg: page.fg; accent: page.accent; ink: page.bgc; fontFamily: page.ff; onClicked: page.mod.cmd(["printer", "add", modelData.name, modelData.uri]) }
       }
     }
     SH.HubRow {

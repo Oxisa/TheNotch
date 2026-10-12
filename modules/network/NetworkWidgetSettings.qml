@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // Network's widgets in Settings → Widgets and in the layout editor's panel.
 Column {
@@ -10,7 +11,7 @@ Column {
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
   readonly property color bgc: Color.background
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.ui
   function t(a, b) { return mod ? mod.t(a, b) : b }
   SH.HubRow {
     title: page.t("Карточка сети", "Network card"); hint: page.t("Подключение, скорость с графиком, задержка, туннель", "Connection, speed with a graph, latency, tunnel")

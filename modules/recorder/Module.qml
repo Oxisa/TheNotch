@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import "../.."
+import "../../fonts"
 
 // Recorder (Диктофон): record the microphone — or the microphone and the
 // system's sound, for calls — keep the recordings and transcribe them on
@@ -82,6 +83,6 @@ NotchModule {
         NumberAnimation { from: 1; to: 0.3; duration: 700 } NumberAnimation { from: 0.3; to: 1; duration: 700 } }
     }
   }
-  liveRight: Component { Text { text: rm.elapsed; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true } }
+  liveRight: Component { Text { text: rm.elapsed; color: Color.foreground; font.family: Fonts.ui; font.pixelSize: Style.font.body; font.bold: true } }
 
 }

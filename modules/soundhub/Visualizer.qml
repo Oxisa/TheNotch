@@ -1,7 +1,8 @@
 import QtQuick
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
 import "../../DeskStyle.js" as DS
+import "../../fonts"
 
 // The music spectrum as a desktop widget, from SoundHub's one shared cava
 // capture (no second audio tap). Three looks:
@@ -97,6 +98,6 @@ Rectangle {
     visible: v.editing && v.levels.every(function(x) { return x < 0.02 })
     text: "\u{f0ea2}  " + (v.mod && v.mod.ru ? "Визуализатор" : "Visualizer")
     color: Qt.darker(v.fg, 1.5)
-    font.family: Style.font.family; font.pixelSize: Style.font.body
+    font.family: Fonts.desk; font.pixelSize: Style.font.body
   }
 }

@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // Settings → Bluetooth & devices → Logitech mouse: per device — battery,
 // DPI (with quick steps), SmartShift, the wheel's mode and direction, the
@@ -12,7 +13,7 @@ Column {
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
   readonly property color bgc: Color.background
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.ui
   function t(a, b) { return mod ? mod.t(a, b) : b }
 
   Text {

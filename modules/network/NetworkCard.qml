@@ -1,7 +1,8 @@
 import QtQuick
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
 import "../../DeskStyle.js" as DS
+import "../../fonts"
 
 // Network card on the desktop: what you're connected through, the speed
 // with a minute of history, latency and whether a tunnel is up.
@@ -14,7 +15,7 @@ Rectangle {
   property var deskStyle: ({})
   readonly property color fg: DS.fg(deskStyle, Color.foreground)
   readonly property color accent: DS.accent(deskStyle, Color.accent)
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.desk
   readonly property color bgc: Color.background
   width: Style.space(c.deskVertical ? 190 : 300)
   height: col.implicitHeight + Style.space(28)

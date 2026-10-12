@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+"""Notes → Markdown: every note in notes.json becomes <Documents>/Заметки/<title>.md
+(the first line is the title, "[ ]"/"[x]" lines become task items). Files it
+wrote before and whose note is gone or renamed are removed — it keeps a list
+in .thenotch-notes.json in that folder and never touches other files.
+  notes2md NOTES_JSON FOLDER_NAME"""
+import json, re, subprocess, sys
+from pathlib import Path
+
+notes = json.loads(Path(sys.argv[1]).read_text() or "[]")
+docs = subprocess.run(["xdg-user-dir", "DOCUMENTS"], capture_output=True, text=True).stdout.strip() or str(Path.home() / "Documents")
+folder = Path(docs) / sys.argv[2]
+folder.mkdir(parents=True, exist_ok=True)
+manifest = folder / ".thenotch-notes.json"
+try:
+    before = set(json.loads(manifest.read_text()))
+except (OSError, ValueError):
+    before = set()
+written, used = [], set()
+for n in notes:
+    lines = (n.get("text") or "").split("\n")
+    title = lines[0].strip() or "Без названия"
+    name = re.sub(r'[\\/:*?"<>|]+', " ", title).strip()[:80] or "Без названия"
+    base, i = name, 2
+    while name.lower() in used:
+        name = f"{base} ({i})"; i += 1
+    used.add(name.lower())
+    body = []
+    for l in lines[1:]:
+        m = re.match(r"\s*\[( |x|X|✓)\]\s*(.*)", l)
+        body.append(f"- [{'x' if m.group(1) != ' ' else ' '}] {m.group(2)}" if m else l)
+    tags = ["archived"] if n.get("archived") else []
+    text = f"# {title}\n\n" + "\n".join(body).strip() + "\n" + (f"\n#{' #'.join(tags)}\n" if tags else "")
+    f = folder / f"{name}.md"
+    if not f.exists() or f.read_text() != text:
+        f.write_text(text)
+    written.append(f.name)
+for old in before - set(written):
+    (folder / old).unlink(missing_ok=True)
+manifest.write_text(json.dumps(sorted(written), ensure_ascii=False))
+print(json.dumps({"ok": True, "folder": str(folder), "count": len(written)}, ensure_ascii=False))

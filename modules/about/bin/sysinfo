@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+"""This computer, for Settings → About, from fastfetch's JSON (the same
+facts `fastfetch` prints) plus Omarchy's own version and theme. One JSON
+object on stdout."""
+import json, os, socket, subprocess
+
+def run(*a):
+    try:
+        return subprocess.run(a, capture_output=True, text=True, timeout=8).stdout.strip()
+    except Exception:
+        return ""
+
+ff = {}
+try:
+    for m in json.loads(run("fastfetch", "--format", "json", "-s",
+                            "Host:CPU:GPU:Display:Disk:Memory:Swap:Kernel:WM:Packages:Uptime:OS:Board")):
+        if m.get("result") is not None:
+            ff[m["type"]] = m["result"]
+except ValueError:
+    pass
+
+def gib(b):
+    return round((b or 0) / 1024 ** 3, 1)
+
+home = os.path.expanduser("~")
+theme = ""
+try:
+    theme = open(f"{home}/.local/state/omarchy/current/theme.name").read().strip()
+except OSError:
+    pass
+cpu = ff.get("CPU", {})
+mem = ff.get("Memory", {})
+up = int((ff.get("Uptime", {}).get("uptime") or 0) / 1000)
+out = {
+    "host": socket.gethostname(),
+    "user": os.environ.get("USER", ""),
+    "os": (ff.get("OS", {}) or {}).get("prettyName", ""),
+    "omarchy": run("omarchy", "version").splitlines()[0] if run("omarchy", "version") else "",
+    "channel": run("bash", "-c", "omarchy version channel 2>/dev/null || true"),
+    "kernel": (ff.get("Kernel", {}) or {}).get("release", ""),
+    "wm": "{} {}".format((ff.get("WM", {}) or {}).get("prettyName", ""), (ff.get("WM", {}) or {}).get("version", "")).strip(),
+    "packages": (ff.get("Packages", {}) or {}).get("all", 0),
+    "uptime": up,
+    "theme": theme,
+    "board": " ".join(x for x in [(ff.get("Board", {}) or {}).get("vendor", ""), (ff.get("Board", {}) or {}).get("name", "")] if x),
+    "cpu": {"name": cpu.get("cpu", ""), "cores": (cpu.get("cores") or {}).get("physical", 0), "threads": (cpu.get("cores") or {}).get("logical", 0),
+            "ghz": round(((cpu.get("frequency") or {}).get("max") or 0) / 1000, 1)},
+    "gpus": [{"name": g.get("name", ""), "vendor": g.get("vendor", ""), "type": g.get("type", "")} for g in ff.get("GPU", [])],
+    "memory": {"used": gib(mem.get("used")), "total": gib(mem.get("total"))},
+    "disks": [{"mount": d.get("mountpoint", ""), "used": gib((d.get("bytes") or {}).get("used")), "total": gib((d.get("bytes") or {}).get("total")),
+               "fs": d.get("filesystem", "")} for d in ff.get("Disk", []) if (d.get("bytes") or {}).get("total")],
+    "displays": [{"name": d.get("name", ""), "w": (d.get("output") or {}).get("width"), "h": (d.get("output") or {}).get("height"),
+                  "hz": round((d.get("output") or {}).get("refreshRate") or 0)} for d in ff.get("Display", [])],
+}
+# the theme's palette, like the colour strip under fastfetch
+pal = {}
+try:
+    for line in open(f"{home}/.local/state/omarchy/current/theme/colors.toml"):
+        if "=" in line and not line.lstrip().startswith("#"):
+            k, v = line.split("=", 1)
+            pal[k.strip()] = v.strip().strip('"')
+except OSError:
+    pass
+out["palette"] = [pal[k] for k in ("red", "orange", "yellow", "green", "cyan", "blue", "magenta", "brown") if k in pal]
+# btrfs subvolumes share one disk: keep the first mount of each
+seen, disks = set(), []
+for d in out["disks"]:
+    k = (d["total"], d["used"], d["fs"])
+    if k not in seen:
+        seen.add(k); disks.append(d)
+out["disks"] = disks
+print(json.dumps(out, ensure_ascii=False))

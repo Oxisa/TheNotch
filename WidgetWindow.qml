@@ -44,7 +44,10 @@ PanelWindow {
   implicitWidth: Math.max(1, Math.ceil(bw + pad * 2))
   implicitHeight: Math.max(1, Math.ceil(bh + pad * 2))
 
-  readonly property bool shown: content.item ? content.item.deskShown !== false : false
+  // windows cover this monitor (Personalisation → Windows): step aside, unless being arranged
+  readonly property var winLook: notch ? notch.moduleById("windows") : null
+  readonly property bool underWindows: !!(winLook && screen && winLook.isCovered(String(screen.name))) && !(notch && notch.editingLayout)
+  readonly property bool shown: content.item ? content.item.deskShown !== false && !underWindows : false
   Region { id: all; item: box }
   Region { id: none }
   mask: shown ? all : none

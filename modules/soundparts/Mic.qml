@@ -1,6 +1,6 @@
 import QtQuick
 import "../.."
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
 
 // Settings → Sound → Microphone: the same page as the notch's Sound →
 // Microphone tab (device, test, voice processing).

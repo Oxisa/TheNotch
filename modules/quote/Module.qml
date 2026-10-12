@@ -2,8 +2,8 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "../.."
-import "../../../osia.dailyquote" as DQP
-import "../../../osia.dailyquote/settings.js" as DQ
+import "../../vendor/dailyquote" as DQP
+import "../../vendor/dailyquote/settings.js" as DQ
 
 // Daily Quote as a TheNotch dashboard. The quote and its desktop overlay
 // belong to the osia.dailyquote plugin; this reads the same files (current
@@ -29,7 +29,8 @@ NotchModule {
   // way); the notch then keeps the quote fresh itself with the plugin's script.
   readonly property bool pluginOn: notch !== null && notch.pluginEnabled("osia.dailyquote")
   readonly property bool hosting: active && notch !== null && notch.omarchyPlugins.length > 0 && !pluginOn
-  readonly property string helper: decodeURIComponent(Qt.resolvedUrl("../../../osia.dailyquote/bin/dailyquote").toString().replace(/^file:\/\//, ""))
+  readonly property bool ru: notch !== null && notch.lang === "ru"
+  readonly property string helper: decodeURIComponent(Qt.resolvedUrl("../../vendor/dailyquote/bin/dailyquote").toString().replace(/^file:\/\//, ""))
   Process { id: fetch }
   function runHelper(args) { if (!fetch.running) { fetch.command = [helper].concat(args); fetch.running = true } }
   Timer {
@@ -61,18 +62,18 @@ NotchModule {
   settingsPage: Component { QuoteSettings { mod: qmod } }
 
   readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/omarchy/dailyquote"
-  readonly property string fontUrl: Qt.resolvedUrl("../../../osia.dailyquote/fonts/UnifrakturMaguntia-Book.ttf")
+  readonly property string fontUrl: Qt.resolvedUrl("../../vendor/dailyquote/fonts/UnifrakturMaguntia-Book.ttf")
 
   readonly property var strings: ({
     en: { title: "Quotes", desc: "A quote of the day on the desktop and in the notch", widget: "Quote on the desktop",
           lang: "Translation", orientation: "Orientation", horizontal: "Horizontal", vertical: "Vertical", origLangs: "Original languages", origLangsHint: "Off: such quotes show their translation instead", fresh: "New quote", copy: "Copy", copied: "Copied", show: "Show on the desktop",
           place: "Position", size: "Size", background: "Background", reset: "Reset", arrange: "Arrange widgets",
-          change: "Change it", sources: "Sources", sourcesHint: "Where new quotes come from", sayings: "Sayings", bible: "Bible",
+          change: "Change it", sources: "Sources", sourcesHint: "Where new quotes come from", sayings: "Sayings", online: "Quote sites", bible: "Bible", suntzu: "Sun Tzu", haiku: "Haiku",
           commentary: "Commentary", commentaryHint: "Matthew Henry, in English", noCommentary: "No commentary for this verse", move: "Move on the desktop", none: "No quote yet" },
     ru: { title: "Цитаты", desc: "Цитата дня на рабочем столе и в чёлке", widget: "Цитата на рабочем столе",
           lang: "Язык перевода", orientation: "Ориентация", horizontal: "Горизонтально", vertical: "Вертикально", origLangs: "Языки оригинала", origLangsHint: "Выключенный язык — вместо оригинала покажется перевод", fresh: "Новая цитата", copy: "Копировать", copied: "Скопировано", show: "Показывать на рабочем столе",
           place: "Положение", size: "Размер", background: "Фон", reset: "Сбросить", arrange: "Расставить виджеты",
-          change: "Смена цитаты", sources: "Источники", sourcesHint: "Откуда берутся новые цитаты", sayings: "Изречения", bible: "Библия",
+          change: "Смена цитаты", sources: "Источники", sourcesHint: "Откуда берутся новые цитаты", sayings: "Изречения", online: "Сайты цитат", bible: "Библия", suntzu: "Сунь-цзы", haiku: "Хокку",
           commentary: "Толкование", commentaryHint: "Мэтью Генри, на английском", noCommentary: "Для этого стиха толкования нет", move: "Переместить на рабочем столе", none: "Цитаты пока нет" }
   })
   function t(k) { var lang = notch ? notch.lang : "en"; return (strings[lang] || strings.en)[k] || strings.en[k] || k }
@@ -125,12 +126,30 @@ NotchModule {
   }
   // at least one source stays on; a change brings a quote from the new mix
   function toggleSource(code) {
-    var src = cfg.sources.slice()
-    if (src.indexOf(code) >= 0) { if (src.length === 1) return; src = src.filter(function(x) { return x !== code }) }
+    var src = cfg.sources.slice(), on = src.indexOf(code) < 0
+    if (!on) { if (src.length === 1) return; src = src.filter(function(x) { return x !== code }) }
     else src.push(code)
-    set("sources", src)
+    // Sun Tzu speaks Chinese and haiku Japanese: switching them on shows those originals
+    var lang = { suntzu: "zh", haiku: "ja" }[code], hide = cfg.hideLangs
+    if (on && lang) hide = hide.filter(function(l) { return l !== lang })
+    setMany({ sources: src, hideLangs: hide, categories: true })
     next()
   }
+  // custom sites: a JSON address and where the text / author are in it
+  function addCustom(c) {
+    var id = String(Date.now())
+    setMany({ custom: cfg.custom.concat([Object.assign({ id: id }, c)]), sources: cfg.sources.concat(["api:" + id]), categories: true })
+  }
+  function removeCustom(id) {
+    setMany({ custom: cfg.custom.filter(function(c) { return c.id !== id }), sources: cfg.sources.filter(function(x) { return x !== "api:" + id }) })
+  }
+  property var testResult: null
+  function testCustom(url, text, author) {
+    testResult = { busy: true }
+    tester.command = [helper, "test", url, text].concat(author ? [author] : [])
+    tester.running = true
+  }
+  Process { id: tester; stdout: StdioCollector { waitForEnd: true; onStreamFinished: { try { qmod.testResult = JSON.parse(text) } catch (e) { qmod.testResult = { ok: false, error: "?" } } } } }
   // a verse's commentary (Matthew Henry via bible.helloao.org), on request
   readonly property bool isVerse: quote !== null && quote.source === "Bible" && !!quote.ref
   property string commentary: ""

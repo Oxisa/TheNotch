@@ -1,6 +1,6 @@
 import QtQuick
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
 import "../../DeskStyle.js" as DS
 
 // Agent limits as a desktop widget: just the rings — one nested ring per

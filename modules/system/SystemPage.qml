@@ -1,11 +1,12 @@
 import QtQuick
 import Quickshell.Io
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // System tab: three big rings (GPU, CPU, memory: load and temperature or
 // video memory), then the network with a short history, the disks and how
-// long the machine has been up.
+// long the machine has been up, and the task manager (TaskManager).
 Column {
   id: page
   property var mod: null
@@ -13,7 +14,7 @@ Column {
   readonly property var d: mod ? mod.data : ({})
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.ui
   function t(a, b) { return mod ? mod.t(a, b) : b }
 
   component Card: Rectangle {
@@ -143,4 +144,6 @@ Column {
       }
     }
   }
+
+  TaskManager { width: parent.width; mod: page.mod }
 }

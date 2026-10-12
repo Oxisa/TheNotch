@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Wallpapers for TheNotch.
+#   wallctl state            current wallpaper, theme, the theme's folders, live-wallpaper state
+#   wallctl thumbs DIR       a poster for every video in DIR (cached), as JSON {video: poster}
+#   wallctl set FILE         an image or a video (videos through the Live Wallpaper plugin)
+set -uo pipefail
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/thenotch/wall-thumbs"
+state="$HOME/.local/state/omarchy/current"
+live="$(dirname "$(readlink -f "$0")")/../../../vendor/livewallpaper/live-wallpaper.sh"
+case "${1:-state}" in
+  state)
+    theme=$(cat "$state/theme.name" 2>/dev/null)
+    bg=$(readlink -f "$state/background" 2>/dev/null)
+    video=$(cat "$HOME/.local/state/omarchy/live-wallpaper/video" 2>/dev/null)
+    livep=true                                     # video wallpapers are built into TheNotch
+    jq -cn --arg theme "$theme" --arg bg "$bg" --arg video "$video" --argjson live "$livep" \
+      --arg tdir "$(readlink -f "$state/theme/backgrounds" 2>/dev/null)" --arg udir "$HOME/.config/omarchy/backgrounds/$theme" \
+      '{ok:true, theme:$theme, background:$bg, video:(if $live then $video else "" end), live:$live, themeDir:$tdir, userThemeDir:$udir}'
+    ;;
+  thumbs)
+    mkdir -p "$cache"
+    printf '{'; first=1
+    shopt -s nullglob nocaseglob
+    for v in "$2"/*.{mp4,mkv,webm,mov,m4v}; do
+      t="$cache/$(printf '%s' "$v" | sha1sum | cut -c1-16).jpg"
+      [[ -f $t ]] || ffmpeg -v error -y -ss 1 -i "$v" -frames:v 1 -vf scale=360:-2 "$t" </dev/null 2>/dev/null || true
+      [[ -f $t ]] || continue
+      [[ $first == 1 ]] || printf ','; first=0
+      jq -cn --arg k "$v" --arg t "$t" '{($k): $t}' | sed 's/^{//; s/}$//'
+    done
+    printf '}\n'
+    ;;
+  set)
+    # Set directly: the plugin's own script ignores a path and opens its picker.
+    f=$(readlink -f "$2")
+    [[ -f $f ]] || { echo '{"ok":false,"error":"no such file"}'; exit 1; }
+    lstate="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/live-wallpaper"
+    case "${f,,}" in
+      *.mp4|*.mkv|*.webm|*.mov|*.m4v)
+        [[ -x $live ]] || { echo '{"ok":false,"error":"Live Wallpaper plugin is not installed"}'; exit 1; }
+        # the plugin plays only from ~/.config/omarchy/backgrounds — link it there
+        lib="$HOME/.config/omarchy/backgrounds/thenotch-videos"
+        if [[ $f != "$HOME/.config/omarchy/backgrounds/"* && $f != "$(readlink -f "$state/theme/backgrounds")/"* ]]; then
+          mkdir -p "$lib"; dst="$lib/$(basename "$f")"
+          [[ -f $dst ]] || ln "$f" "$dst" 2>/dev/null || cp --reflink=auto "$f" "$dst"
+          f="$dst"
+        fi
+        mkdir -p "$cache" "$lstate"
+        poster="$cache/$(printf '%s' "$f" | sha1sum | cut -c1-16)-full.jpg"
+        [[ -f $poster ]] || ffmpeg -nostdin -v error -y -i "$f" -an -frames:v 1 -vf "scale=1536:-2" -q:v 3 "$poster" 2>/dev/null
+        [[ -f $poster ]] || { echo '{"ok":false,"error":"could not read the video"}'; exit 1; }
+        cur=$(readlink -f "$state/background")
+        [[ -s $lstate/fallback ]] || [[ $cur == "$cache/"* ]] || printf '%s\n' "$cur" > "$lstate/fallback"
+        printf '%s\n' "$f" > "$lstate/video"; printf '%s\n' "$poster" > "$lstate/poster"; printf '%s\n' "$poster" > "$lstate/expected"
+        omarchy-theme-bg-set "$poster" >/dev/null 2>&1
+        for i in 1 2 3 4 5; do omarchy-shell -q tenzin.live-wallpaper play "$f" 420 >/dev/null 2>&1 && { echo '{"ok":true}'; exit 0; }; read -t 0.2 < /dev/zero; done
+        echo '{"ok":false,"error":"could not play the video"}' ;;
+      *)
+        [[ -x $live ]] && "$live" --stop >/dev/null 2>&1
+        omarchy-theme-bg-set "$f" >/dev/null 2>&1
+        echo '{"ok":true}' ;;
+    esac
+    ;;
+esac

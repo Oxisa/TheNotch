@@ -1,7 +1,8 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // One agent as one nested ring: the outer ring is the short limit (the
 // 5-hour session), the inner one the long limit (week, or Codex's window).
@@ -18,7 +19,7 @@ Item {
   property color fg: Color.foreground
   property color accent: Color.accent
   property color urgent: Color.urgent
-  property string fontFamily: Style.font.family
+  property string fontFamily: Fonts.desk
 
   readonly property var limits: agentData && agentData.limits ? agentData.limits : []
   readonly property var outer: limits.length > 0 ? limits[0] : null

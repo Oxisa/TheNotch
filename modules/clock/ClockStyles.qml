@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // The clock widget's other looks (besides Kronos's rings):
 //   type  big typographic time and the date in words under it
@@ -20,7 +21,7 @@ Item {
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
   readonly property color bgc: Color.background
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.desk
 
   property date now: new Date()
   Timer { interval: 1000; running: true; repeat: true; triggeredOnStart: true; onTriggered: c.now = new Date() }

@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // Everything not written for this project, grouped: code we forked or
 // adapted, bundled sounds and fonts, and services and programs we call.
@@ -13,7 +14,7 @@ Column {
 
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.ui
   function l10n(ruText, enText) { return ru ? ruText : enText }
 
   readonly property var groups: [
@@ -42,8 +43,7 @@ Column {
         use: l10n("Компоновка чёлки: вкладки с иконкой над подписью, «Главная» (погода, профиль, дата, календарь, ресурсы, плеер), большие кольца «Системы», «Центр». Только идеи — код GPL не используется",
                   "The notch's layout: icon-over-label tabs, Home (weather, profile, date, calendar, resources, player), System's big rings, Centre. Ideas only — no GPL code is used") },
       { name: "Display Settings (omarchy-display)", who: "Amin Marashi", license: "MIT", url: "https://plugins.omarchy.org",
-        use: l10n("«Дисплеи» вызывают его программу display-settings: разрешение, частота, масштаб, расположение, яркость DDC",
-                  "Displays calls its display-settings program: resolution, refresh rate, scale, arrangement, DDC brightness") },
+        use: l10n("«Дисплеи»: расстановка, разрешение, масштаб, яркость — встроенная копия бэкенда (vendor/display)", "Displays: arrangement, resolution, scale, brightness — a built-in copy of the backend (vendor/display)") },
       { name: "Network+", who: "das6ng", license: l10n("см. репозиторий", "see repository"), url: "https://github.com/das6ng/omarchy-network-plus",
         use: l10n("Идея раздела «Сеть»: список Wi-Fi, адреса, DNS, скорость, задержка (код не взят)", "The idea of Network: Wi-Fi list, addresses, DNS, throughput, latency (no code taken)") },
       { name: "Visual Keybindings, Shortkeyz", who: "dai199, schmunk42", license: "MIT", url: "https://github.com/dai199/omarchy-visual-keybindings",
@@ -85,8 +85,21 @@ Column {
         use: l10n("Шумоподавление «Микрофона»: встроенное в PipeWire и ИИ-плагин (ставится по желанию)", "Microphone's noise suppression: PipeWire's built-in and the optional AI plugin") },
       { name: "libmdr (SonyHeadphonesClient), mdrctl/mdrctld", who: "mos9527; delarosa1312", license: "MIT", url: "https://github.com/mos9527/SonyHeadphonesClient",
         use: l10n("«Наушники»: протокол Sony MDR v2 и демон сессии; собираются для пользователя скриптом install-sony", "Headphones: the Sony MDR v2 protocol and the session daemon; built for the user by install-sony") },
-      { name: "UxPlay", who: "F. Duncanh (FDH2) и авторы RPiPlay", license: "GPL-3.0", url: "https://github.com/FDH2/UxPlay",
-        use: l10n("«Телефон»: приёмник AirPlay для экрана iPhone (отдельная программа, собирается скриптом install-uxplay)", "Phone: the AirPlay receiver for an iPhone's screen (a separate program, built by install-uxplay)") },
+      { name: "Bananet", who: "blazejkapala", license: "MIT", url: "https://github.com/blazejkapala/omarchy-bananet",
+        use: l10n("«Сеть → Трафик»: сборщик маршрутов, DNS, соединений — встроенная копия (vendor/bananet)", "Network → Traffic: the routes, DNS and connections collector — a built-in copy (vendor/bananet)") },
+      { name: "Omapalette", who: "amh (janooh37-hue)", license: "MIT", url: "https://github.com/janooh37-hue/omapalette",
+        use: l10n("«Темы»: обои в тон и тема из цвета — встроенная копия движка (vendor/omapalette)", "Themes: matching wallpapers and a theme from a colour — a built-in copy of the engine (vendor/omapalette)") },
+      { name: "Live Wallpaper", who: "Yeshey Tenzin", license: "MIT", url: "https://github.com/yesheytenzin/live-wallpaper",
+        use: l10n("«Обои»: видео-обои — встроенная копия сервиса и скрипта (vendor/livewallpaper)", "Wallpaper: video wallpapers — a built-in copy of the service and script (vendor/livewallpaper)") },
+      { name: "Omarchy notifications", who: "Omarchy (Basecamp) " + l10n("и osia", "and osia"), license: "MIT", url: "https://omarchy.org",
+        use: l10n("Сервер уведомлений, «Не беспокоить», история — доработанная копия встроенного сервиса (vendor/notifications)", "The notification daemon, DND, history — a modified copy of the built-in service (vendor/notifications)") },
+      { name: l10n("Идеи", "Ideas"), who: "ReidenXerx (Aerial), antoniowav (Workspace Switcher), tjcelaya (Workspace icons), v3moreno (Modes Switcher), jondkinney (Hyprpin), i12bp8 (oShelf), Jot, ilyazar (Syncthing), dreed47 (Print Center), jonspinks (Datebook), klaudworks (Omadoro)", license: "MIT",
+        url: "https://plugins.omarchy.org",
+        use: l10n("Обзор столов, раскладки, закрепление окон, полка, заметки, Syncthing, принтеры, календарь, помодоро — только идеи, код свой", "Workspace overview, tiling modes, pinned windows, the shelf, notes, Syncthing, printers, the calendar, pomodoro — ideas only, our own code") },
+      { name: "kcd", who: "bethropolis", license: "MIT", url: "https://github.com/bethropolis/kcd",
+        use: l10n("«Телефон»: KDE Connect — батарея, файлы, буфер, поиск телефона (системная служба)", "Phone: KDE Connect — battery, files, clipboard, find the phone (system service)") },
+      { name: "OMAConnect", who: "ekollof", license: "MIT", url: "https://github.com/ekollof/omaconnect",
+        use: l10n("«Телефон»: идея — интерфейс к kcd (только идея, не код)", "Phone: the idea of a front end over kcd (idea only, no code)") },
       { name: "Solaar", who: l10n("авторы Solaar", "the Solaar authors"), license: "GPL-2.0", url: "https://github.com/pwr-Solaar/Solaar",
         use: l10n("«Мышь Logitech»: DPI, SmartShift, колёса, заряд (системная программа)", "Logitech mouse: DPI, SmartShift, wheels, battery (system program)") },
       { name: "Open-Meteo", who: "open-meteo.com", license: "CC BY 4.0", url: "https://open-meteo.com",

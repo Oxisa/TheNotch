@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // A large ring: the main value as an arc and big text in the middle, a
 // second value as a short arc along the lower right.
@@ -41,13 +42,13 @@ Item {
   }
   Column {
     anchors.centerIn: parent
-    Text { anchors.horizontalCenter: parent.horizontalCenter; text: br.big; color: br.fg; font.family: Style.font.family; font.pixelSize: br.size * 0.19; font.bold: true }
-    Text { anchors.horizontalCenter: parent.horizontalCenter; text: br.label; color: Qt.darker(br.fg, 1.35); font.family: Style.font.family; font.pixelSize: Style.font.caption }
+    Text { anchors.horizontalCenter: parent.horizontalCenter; text: br.big; color: br.fg; font.family: Fonts.desk; font.pixelSize: br.size * 0.19; font.bold: true }
+    Text { anchors.horizontalCenter: parent.horizontalCenter; text: br.label; color: Qt.darker(br.fg, 1.35); font.family: Fonts.desk; font.pixelSize: Style.font.caption }
   }
   Text {
     anchors.horizontalCenter: parent.horizontalCenter; anchors.bottom: parent.bottom; anchors.bottomMargin: Style.space(4)
     text: br.small
     color: Qt.darker(br.fg, 1.5)
-    font.family: Style.font.family; font.pixelSize: Style.font.caption - 1
+    font.family: Fonts.desk; font.pixelSize: Style.font.caption - 1
   }
 }

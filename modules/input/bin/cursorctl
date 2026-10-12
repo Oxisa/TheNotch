@@ -1,0 +1,365 @@
+#!/usr/bin/env python3
+"""Cursor themes for TheNotch: list them with previews, apply one, import a
+Windows cursor pack (.zip with .ani/.cur files) as an Xcursor theme.
+
+  list                    themes with cursors (system, yours, the Cursor
+                          Accent plugin's), each with a preview picture
+  current                 what is set now
+  apply NAME [SIZE]       set it now (hyprctl setcursor, GTK) and keep it:
+                          an env block in ~/.config/hypr/looknfeel.lua and an
+                          Omarchy post-boot hook re-apply it at every login
+  import ZIP [NAME]       convert the .ani/.cur files to an Xcursor theme in
+                          ~/.local/share/icons/NAME (animations kept; small
+                          pixel art is enlarged without blurring)
+  delete NAME             remove a theme you imported
+  downloads               cursor packs (.zip with .ani/.cur) in ~/Downloads not imported yet
+
+Packs are converted for your own use on this computer; many authors forbid
+re-sharing them. Every command prints one JSON object.
+"""
+import configparser, io, json, os, re, shutil, struct, subprocess, sys, tempfile, zipfile
+from pathlib import Path
+
+HOME = Path.home()
+USER_ICONS = HOME / ".local/share/icons"
+DIRS = [USER_ICONS, HOME / ".icons", Path("/usr/share/icons")]
+CACHE = HOME / ".cache/thenotch/cursors"
+STATE = HOME / ".config/thenotch/cursor.json"
+LOOK = HOME / ".config/hypr/looknfeel.lua"
+HOOK = HOME / ".config/omarchy/hooks/post-boot.d/thenotch-cursor"
+BEGIN, END = "-- BEGIN thenotch-cursor", "-- END thenotch-cursor"
+ACCENT = "Omarchy-Accent"
+
+# Windows roles → the Xcursor names apps ask for
+ROLES = {
+    "pointer": ["left_ptr", "default", "arrow", "top_left_arrow", "left_arrow"],
+    "help": ["help", "question_arrow", "whats_this", "left_ptr_help"],
+    "working": ["progress", "left_ptr_watch", "half-busy"],
+    "busy": ["wait", "watch"],
+    "text": ["text", "xterm", "ibeam"],
+    "link": ["pointer", "hand", "hand1", "hand2", "pointing_hand"],
+    "precision": ["crosshair", "cross", "tcross"],
+    "move": ["move", "fleur", "all-scroll", "size_all"],
+    "unavailable": ["not-allowed", "no-drop", "crossed_circle", "forbidden"],
+    "vert": ["ns-resize", "size_ver", "v_double_arrow", "sb_v_double_arrow", "n-resize", "s-resize"],
+    "horz": ["ew-resize", "size_hor", "h_double_arrow", "sb_h_double_arrow", "e-resize", "w-resize"],
+    "dgn1": ["nwse-resize", "size_fdiag", "nw-resize", "se-resize", "bd_double_arrow"],
+    "dgn2": ["nesw-resize", "size_bdiag", "ne-resize", "sw-resize", "fd_double_arrow"],
+    "handwriting": ["pencil"],
+    "alternate": ["up-arrow", "center_ptr"],
+}
+WORDS = {  # file-name hints when the pack has no install.inf
+    "pointer": ["normal", "arrow", "pointer", "default", "select"], "help": ["help"], "working": ["working", "appstarting", "background"],
+    "busy": ["busy", "wait"], "text": ["text", "ibeam", "beam"], "link": ["link", "hand"], "precision": ["precision", "cross"],
+    "move": ["move"], "unavailable": ["unavailable", "no", "forbidden"], "vert": ["vert", "ns"], "horz": ["horz", "ew"],
+    "dgn1": ["dgn1", "nwse"], "dgn2": ["dgn2", "nesw"], "handwriting": ["handwriting", "pen"], "alternate": ["alternate", "alt"],
+}
+
+
+def out(obj):
+    print(json.dumps(obj, ensure_ascii=False))
+    return 0 if obj.get("ok", True) else 1
+
+
+def run(args, **kw):
+    return subprocess.run(args, capture_output=True, text=True, **kw)
+
+
+# ---------------------------------------------------------------- Xcursor
+def read_xcursor(path):
+    """The biggest first-frame image: (w, h, argb bytes)."""
+    d = path.read_bytes()
+    if d[:4] != b"Xcur":
+        return None
+    ntoc = struct.unpack("<I", d[12:16])[0]
+    best = None
+    for i in range(ntoc):
+        typ, sub, pos = struct.unpack("<III", d[16 + 12 * i:28 + 12 * i])
+        if typ != 0xFFFD0002:
+            continue
+        w, h = struct.unpack("<II", d[pos + 16:pos + 24])
+        if best is None or w > best[0]:
+            best = (w, h, d[pos + 36:pos + 36 + w * h * 4])
+    return best
+
+
+def write_xcursor(path, images):
+    """images: [(size, w, h, xhot, yhot, delay_ms, argb_bytes)]"""
+    n = len(images)
+    head = struct.pack("<4sIII", b"Xcur", 16, 0x10000, n)
+    toc, body, pos = b"", b"", 16 + 12 * n
+    for size, w, h, xh, yh, delay, px in images:
+        chunk = struct.pack("<IIIIIIIII", 36, 0xFFFD0002, size, 1, w, h, xh, yh, delay) + px
+        toc += struct.pack("<III", 0xFFFD0002, size, pos)
+        body += chunk
+        pos += len(chunk)
+    path.write_bytes(head + toc + body)
+
+
+def rgba_to_argb(rgba):
+    """ImageMagick's RGBA → Xcursor's premultiplied ARGB (little-endian BGRA)."""
+    out = bytearray(len(rgba))
+    for i in range(0, len(rgba), 4):
+        r, g, b, a = rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]
+        out[i:i + 4] = bytes(((b * a) // 255, (g * a) // 255, (r * a) // 255, a))
+    return bytes(out)
+
+
+def magick_rgba(data, ext, size=None, pixel=False):
+    with tempfile.NamedTemporaryFile(suffix="." + ext) as f:
+        f.write(data); f.flush()
+        args = ["magick", f"{ext}:{f.name}[0]", "-background", "none"]
+        if size:
+            args += (["-filter", "point"] if pixel else []) + ["-resize", f"{size}x{size}!"]
+        r = subprocess.run(args + ["-depth", "8", "rgba:-"], capture_output=True)
+        return r.stdout
+
+
+# ---------------------------------------------------------------- packs
+def cur_frames(data):
+    """A .cur or .ani file → [(cur_bytes, w, h, xhot, yhot, delay_ms)]."""
+    def one(c):
+        _, typ, cnt = struct.unpack("<HHH", c[:6])
+        w, h, _, _, xh, yh, _, _ = struct.unpack("<BBBBHHII", c[6:22])
+        return (c, w or 256, h or 256, xh, yh)
+    if data[:4] == b"RIFF" and data[8:12] == b"ACON":
+        frames, rate, seq, jif = [], None, None, 6
+        i = 12
+        while i < len(data) - 8:
+            cid = data[i:i + 4]; sz = struct.unpack("<I", data[i + 4:i + 8])[0]
+            if cid == b"LIST":
+                i += 12; continue
+            body = data[i + 8:i + 8 + sz]
+            if cid == b"anih":
+                jif = struct.unpack("<9I", body[:36])[7] or 6
+            elif cid == b"rate":
+                rate = list(struct.unpack(f"<{sz // 4}I", body))
+            elif cid == b"seq ":
+                seq = list(struct.unpack(f"<{sz // 4}I", body))
+            elif cid == b"icon":
+                frames.append(one(body))
+            i += 8 + sz + (sz & 1)
+        order = seq or list(range(len(frames)))
+        res = []
+        for k, fi in enumerate(order):
+            if fi < len(frames):
+                c, w, h, xh, yh = frames[fi]
+                j = rate[k] if rate and k < len(rate) else jif
+                res.append((c, w, h, xh, yh, max(16, int(j * 1000 / 60))))
+        return res
+    c, w, h, xh, yh = one(data)
+    return [(c, w, h, xh, yh, 0)]
+
+
+def roles_from_inf(files):
+    """[Strings] of a Windows install.inf: pointer = "Normal.ani" …"""
+    for name, data in files.items():
+        if name.lower().endswith(".inf"):
+            text = data.decode("utf-8", "ignore")
+            m = re.search(r"\[Strings\](.*?)(?:\n\[|\Z)", text, re.S | re.I)
+            if not m:
+                continue
+            res = {}
+            for line in m.group(1).splitlines():
+                kv = re.match(r'\s*(\w+)\s*=\s*"?([^"]+?)"?\s*$', line)
+                if kv and kv.group(1).lower() in ROLES:
+                    res[kv.group(1).lower()] = Path(kv.group(2)).name.lower()
+            if res:
+                return res
+    return {}
+
+
+def import_zip(zpath, name=None):
+    z = zipfile.ZipFile(zpath)
+    files = {n: z.read(n) for n in z.namelist() if not n.endswith("/")}
+    cursors = {Path(n).name.lower(): d for n, d in files.items() if n.lower().endswith((".ani", ".cur"))}
+    if not cursors:
+        return out({"ok": False, "error": "no .ani or .cur files in the archive"})
+    roles = roles_from_inf(files)
+    for role, words in WORDS.items():                   # fill the rest from file names
+        if role in roles:
+            continue
+        for fname in cursors:
+            stem = Path(fname).stem.lower()
+            if any(stem == w or (len(w) >= 4 and stem.startswith(w)) for w in words):
+                roles[role] = fname
+                break
+    if "pointer" not in roles:
+        roles["pointer"] = sorted(cursors)[0]
+    if "working" in roles and "busy" not in roles:
+        roles["busy"] = roles["working"]
+    if not name:
+        stem = re.sub(r"(?i)\b(trial|free|full)\s+version\b", "", Path(zpath).stem)
+        name = re.sub(r"\s+", " ", re.sub(r"[^\w ]+", " ", stem)).strip() or "Imported"
+    theme = USER_ICONS / name
+    shutil.rmtree(theme, ignore_errors=True)
+    (theme / "cursors").mkdir(parents=True)
+    for role, fname in roles.items():
+        frames = cur_frames(cursors[fname])
+        images = []
+        src = max(f[1] for f in frames)
+        pixel = src <= 48                                   # small pixel art: enlarge without blur
+        for size in sorted({24, 32, 48, 64, src}):
+            k = size / src
+            for c, w, h, xh, yh, delay in frames:
+                rgba = magick_rgba(c, "cur", size if size != src else None, pixel)
+                tw = th = size if size != src else w
+                if len(rgba) != tw * th * 4:
+                    continue
+                images.append((size, tw, th, min(tw - 1, round(xh * k)), min(th - 1, round(yh * k)), delay, rgba_to_argb(rgba)))
+        if not images:
+            continue
+        first = theme / "cursors" / ROLES[role][0]
+        write_xcursor(first, images)
+        for alias in ROLES[role][1:]:
+            link = theme / "cursors" / alias
+            if not link.exists():
+                link.symlink_to(first.name)
+    (theme / "index.theme").write_text(f"[Icon Theme]\nName={name}\nComment=Imported by TheNotch from {Path(zpath).name}\nInherits=Adwaita\n")
+    (theme / ".thenotch-imported").write_text(str(zpath))
+    return out({"ok": True, "name": name, "roles": sorted(roles)})
+
+
+# ---------------------------------------------------------------- themes
+def preview(theme_dir):
+    CACHE.mkdir(parents=True, exist_ok=True)
+    png = CACHE / (theme_dir.name + ".png")
+    if png.exists() and png.stat().st_mtime >= theme_dir.stat().st_mtime:
+        return str(png)
+    for nm in ("left_ptr", "default", "arrow"):
+        p = theme_dir / "cursors" / nm
+        if p.exists():
+            img = read_xcursor(p.resolve())
+            if img:
+                w, h, argb = img
+                rgba = bytearray(len(argb))
+                for i in range(0, len(argb), 4):
+                    b, g, r, a = argb[i:i + 4]
+                    if a:
+                        r, g, b = min(255, r * 255 // a), min(255, g * 255 // a), min(255, b * 255 // a)
+                    rgba[i:i + 4] = bytes((r, g, b, a))
+                subprocess.run(["magick", "-size", f"{w}x{h}", "-depth", "8", "rgba:-", str(png)], input=bytes(rgba), capture_output=True)
+                return str(png) if png.exists() else ""
+    hlc = theme_dir / "hyprcursors" / "left_ptr.hlc"
+    if hlc.exists():
+        try:
+            z = zipfile.ZipFile(hlc)
+            for n in z.namelist():
+                if n.endswith((".svg", ".png")):
+                    data = z.read(n)
+                    with tempfile.NamedTemporaryFile(suffix=Path(n).suffix) as f:
+                        f.write(data); f.flush()
+                        subprocess.run(["magick", "-background", "none", f.name, "-resize", "64x64", str(png)], capture_output=True)
+                    return str(png) if png.exists() else ""
+        except zipfile.BadZipFile:
+            pass
+    return ""
+
+
+def themes():
+    seen, res = set(), []
+    for base in DIRS:
+        if not base.is_dir():
+            continue
+        for d in sorted(base.iterdir()):
+            if d.name in seen or not ((d / "cursors").is_dir() or (d / "hyprcursors").is_dir()):
+                continue
+            seen.add(d.name)
+            kind = "plugin" if d.name == ACCENT else "imported" if (d / ".thenotch-imported").exists() else "user" if base != DIRS[-1] else "system"
+            res.append({"name": d.name, "kind": kind, "preview": preview(d), "path": str(d)})
+    return res
+
+
+def current():
+    try:
+        st = json.loads(STATE.read_text())
+    except (OSError, ValueError):
+        st = {}
+    g = run(["gsettings", "get", "org.gnome.desktop.interface", "cursor-theme"]).stdout.strip().strip("'")
+    s = run(["gsettings", "get", "org.gnome.desktop.interface", "cursor-size"]).stdout.strip()
+    accent_on = any(p.get("id") == "io.github.smoothpixels.cursor-accent" and p.get("enabled")
+                    for p in json.loads(run(["omarchy", "plugin", "list", "--json"]).stdout or "[]"))
+    return {"theme": st.get("theme") or (ACCENT if accent_on else g), "size": int(st.get("size") or (s if s.isdigit() else 24)),
+            "accentPlugin": accent_on}
+
+
+def persist(name, size):
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    STATE.write_text(json.dumps({"theme": name, "size": size}))
+    text = LOOK.read_text() if LOOK.exists() else ""
+    block = (f'{BEGIN}\n-- Written by TheNotch (Settings → Input → Cursor). Delete this block to undo.\n'
+             f'hl.env("XCURSOR_THEME", {json.dumps(name)})\nhl.env("XCURSOR_SIZE", "{size}")\n'
+             f'hl.env("HYPRCURSOR_THEME", {json.dumps(name)})\nhl.env("HYPRCURSOR_SIZE", "{size}")\n{END}\n')
+    if BEGIN in text and END in text:
+        text = re.sub(re.escape(BEGIN) + r".*?" + re.escape(END) + r"\n?", block, text, flags=re.S)
+    else:
+        text = text.rstrip("\n") + "\n\n" + block
+    LOOK.write_text(text)
+    HOOK.parent.mkdir(parents=True, exist_ok=True)
+    HOOK.write_text(f"#!/bin/bash\n# TheNotch: re-apply the chosen cursor at login\nhyprctl setcursor {json.dumps(name)} {size} >/dev/null 2>&1\n")
+    HOOK.chmod(0o755)
+
+
+def unpersist():
+    STATE.unlink(missing_ok=True)
+    if LOOK.exists():
+        LOOK.write_text(re.sub(re.escape(BEGIN) + r".*?" + re.escape(END) + r"\n?", "", LOOK.read_text(), flags=re.S))
+    HOOK.unlink(missing_ok=True)
+
+
+def apply(name, size):
+    plug = "io.github.smoothpixels.cursor-accent"
+    if name == ACCENT:
+        # the plugin keeps its own cursor up to date with the theme: hand over to it
+        unpersist()
+        run(["omarchy", "plugin", "enable", plug])
+        r = run(["hyprctl", "setcursor", name, str(size)])
+    else:
+        if current()["accentPlugin"]:
+            run(["omarchy", "plugin", "disable", plug])      # or it would put its cursor back
+        r = run(["hyprctl", "setcursor", name, str(size)])
+        persist(name, size)
+    run(["gsettings", "set", "org.gnome.desktop.interface", "cursor-theme", name])
+    run(["gsettings", "set", "org.gnome.desktop.interface", "cursor-size", str(size)])
+    return out({"ok": r.returncode == 0, "error": r.stderr.strip()})
+
+
+def downloads():
+    res, have = [], {(USER_ICONS / d / ".thenotch-imported").read_text() for d in os.listdir(USER_ICONS)
+                     if (USER_ICONS / d / ".thenotch-imported").exists()} if USER_ICONS.exists() else set()
+    for z in sorted((HOME / "Downloads").glob("*.zip"), key=lambda p: -p.stat().st_mtime)[:60]:
+        try:
+            names = zipfile.ZipFile(z).namelist()
+        except (zipfile.BadZipFile, OSError):
+            continue
+        n = sum(1 for x in names if x.lower().endswith((".ani", ".cur")))
+        if n:
+            res.append({"zip": str(z), "name": z.stem, "cursors": n, "imported": str(z) in have})
+    return res
+
+
+def main():
+    a = sys.argv[1:]
+    c = a[0] if a else "list"
+    if c == "list":
+        return out({"ok": True, "themes": themes(), "current": current()})
+    if c == "downloads":
+        return out({"ok": True, "packs": downloads()})
+    if c == "current":
+        return out({"ok": True, **current()})
+    if c == "apply" and len(a) > 1:
+        return apply(a[1], int(a[2]) if len(a) > 2 else current()["size"])
+    if c == "import" and len(a) > 1:
+        return import_zip(a[1], a[2] if len(a) > 2 else None)
+    if c == "delete" and len(a) > 1:
+        d = USER_ICONS / a[1]
+        if (d / ".thenotch-imported").exists():
+            shutil.rmtree(d)
+            return out({"ok": True})
+        return out({"ok": False, "error": "only imported themes can be deleted here"})
+    print(__doc__, file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

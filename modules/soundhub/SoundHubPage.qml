@@ -1,9 +1,10 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
 
-// SoundHub's tabs inside the notch (its settings are in the settings window): the same pages as the bar panel
+// SoundHub's tabs inside the notch — Now playing, EQ, Focus, Microphone (the
+// mixer and the settings live in the settings window): the same pages as the bar panel
 // (loaded from the osia.soundhub folder, one copy of the code), under the
 // same sliding segmented control. Pages are created on first visit and kept.
 Column {
@@ -13,7 +14,6 @@ Column {
 
   readonly property var tabs: [
     { icon: "󰝚", key: "tab.playing", file: "NowPlaying.qml" },
-    { icon: "\u{f1542}", key: "tab.mixer", file: "MixerPage.qml" },
     { icon: "󰺢", key: "tab.eq", file: "EqPage.qml" },
     { icon: "󱅻", key: "tab.focus", file: "FocusPage.qml" },
     { icon: "\u{f036c}", key: "tab.mic", file: "MicPage.qml" }
@@ -96,7 +96,7 @@ Column {
         opacity: shown ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 200 } }
         active: visited
-        source: Qt.resolvedUrl("../../../osia.soundhub/" + modelData.file)
+        source: Qt.resolvedUrl("../../vendor/soundhub/" + modelData.file)
         onLoaded: item.host = root.host
       }
     }

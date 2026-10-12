@@ -1,7 +1,8 @@
 import QtQuick
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
 import "../settings"
+import "../../fonts"
 
 // Settings → System → Notifications: do not disturb and which events pop
 // out of the notch.
@@ -19,7 +20,7 @@ Column {
       width: parent.width - SH.HubStyle.pad * 2
       icon: "\u{f009b}"
       title: page.mod ? page.mod.t("dnd") : ""; hint: page.mod ? page.mod.t("dndHint") : ""
-      fg: Color.foreground; fontFamily: Style.font.family
+      fg: Color.foreground; fontFamily: Fonts.ui
       SH.HubSwitch {
         checked: page.mod ? page.mod.dnd : false
         fg: Color.foreground; accent: Color.accent; ink: Color.background

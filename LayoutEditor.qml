@@ -2,7 +2,8 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import qs.Commons
-import "../osia.soundhub" as SH
+import "vendor/soundhub" as SH
+import "fonts"
 
 // Widget layout editor for one monitor: over everything, a dimmed desktop
 // with a grid; the real widgets can be dragged and snap ("magnet") to the
@@ -25,7 +26,7 @@ PanelWindow {
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
   readonly property color bgc: Color.background
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.ui
   readonly property bool ru: notch !== null && notch.lang === "ru"
   readonly property real step: Style.space(40)
   readonly property real edgeM: Style.space(24)
@@ -434,7 +435,7 @@ PanelWindow {
     readonly property var px: ed.selected ? ed.proxyOf(ed.selected) : null
     visible: px !== null && ed.selItem !== null
     z: 15
-    width: Style.space(340)
+    width: Style.space(430)
     height: Math.min(ed.height - Style.space(40), pcol.implicitHeight + Style.space(24))
     readonly property real side: Style.space(18)
     x: !px ? 0 : (px.x + px.width + side + width <= ed.width ? px.x + px.width + side : Math.max(0, px.x - side - width))
@@ -565,7 +566,7 @@ PanelWindow {
               fillColor: ed.accent; fontFamily: ed.ff
               onReleased: function(v) { styleCol.set({ bgOpacity: Math.round(v * 100) / 100 }) } } }
           SH.HubRow { title: ed.ru ? "Скругление" : "Corners"; fg: ed.fg; fontFamily: ed.ff
-            SH.HubSlider { width: Style.space(150); minimum: 0; maximum: 48; step: 1
+            SH.HubSlider { width: Style.space(150); minimum: 0; maximum: 200; step: 1
               value: styleCol.st.radius !== undefined ? Number(styleCol.st.radius) : 16
               format: function(v) { return Math.round(v) + " px" }
               fillColor: ed.accent; fontFamily: ed.ff
@@ -585,7 +586,7 @@ PanelWindow {
             delegate: SH.HubRow {
               required property var modelData
               title: modelData.l; fg: ed.fg; fontFamily: ed.ff
-              SH.HubSlider { width: Style.space(150); minimum: 0; maximum: 64; step: 1
+              SH.HubSlider { width: Style.space(150); minimum: 0; maximum: 200; step: 1
                 value: Number(styleCol.st.corners[modelData.k] || 0)
                 format: function(v) { return Math.round(v) + " px" }
                 fillColor: ed.accent; fontFamily: ed.ff

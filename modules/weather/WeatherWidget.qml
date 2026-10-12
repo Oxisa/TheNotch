@@ -1,7 +1,8 @@
 import QtQuick
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
 import "../../DeskStyle.js" as DS
+import "../../fonts"
 
 // The weather on the desktop, in one of three looks:
 //   capsule  a compact pill: glyph, temperature, city
@@ -27,7 +28,7 @@ Item {
   readonly property color fg: DS.fg(deskStyle, Color.foreground)
   readonly property color accent: DS.accent(deskStyle, Color.accent)
   readonly property color bg: Color.background
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.desk
   readonly property real alpha: Number(DS.pick(deskStyle, "bgOpacity", mod ? Number(mod.opt("opacity", 0.85)) : 0.85))
   readonly property color fill: DS.bg(deskStyle, bg, accent, alpha)
   readonly property string g: n ? mod.glyph(n.code, n.day) : "\u{f0595}"

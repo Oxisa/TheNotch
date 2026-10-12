@@ -39,6 +39,7 @@ NotchModule {
         dv.busy = ""
         if (d) {
           if (proc.args[0] === "status") dv.st = d
+          else if (proc.args[1] === "discover") dv.found = d.found || []
           else { dv.error = d.ok ? "" : (d.error || ""); dv.cmd(["status"]) }
         }
         dv.next()
@@ -58,6 +59,7 @@ NotchModule {
   function bt(action, mac) { error = ""; cmd(["bt", action, mac]) }
   function scan() { cmd(["bt", "scan", "15"]); scanning = true; scanEnd.restart() }
   property bool scanning: false
+  property var found: []                         // network printers not yet added
   Timer { id: scanEnd; interval: 16000; onTriggered: dv.scanning = false }
 
   readonly property bool watching: active && notch !== null && notch.settingsOpen && notch.settingsSection === "bluetooth"

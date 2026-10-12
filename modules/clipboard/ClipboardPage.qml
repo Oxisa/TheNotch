@@ -1,7 +1,8 @@
 import QtQuick
 import Quickshell
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // Clipboard's page: a search field and the recent copies; a click copies.
 Column {
@@ -10,7 +11,7 @@ Column {
   spacing: Style.space(8)
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.ui
   function t(a, b) { return mod ? mod.t(a, b) : b }
   property string filter: ""
   readonly property var rows: {

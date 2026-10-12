@@ -6,7 +6,7 @@ import "../.."
 
 // Network & internet: the connection (wired or Wi-Fi) with its speed and
 // latency, Wi-Fi networks (join, forget, share by QR), wired adapters,
-// tunnels (shown, never switched — their apps own them), and in Advanced the
+// tunnels (shown, never switched — their apps own them), and in Details the
 // addresses, DNS and saved connections. NetworkManager does the work through
 // bin/netctl. Two desktop widgets: a card and a signal ring. Wi-Fi list and
 // details after Network+ (das6ng) and Omarchy's own network panel — ideas

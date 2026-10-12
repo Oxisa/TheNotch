@@ -3,7 +3,8 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import "../.."
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // Agents: your coding agents and their limits in the notch.
 //   ask     Enter = a quick read-only answer right in the notch (the agent
@@ -13,8 +14,9 @@ import "../../../osia.soundhub" as SH
 //           ~/.local/state/omarchy/agents/usage/*.json) — no credentials are
 //           read here. Claude and Codex report limits; Gemini and opencode
 //           have none to report, so they show only what is honest.
-//   live    a limit above the threshold shows in the collapsed notch;
-//           crossing 80 % / 95 % and a reset raise events
+//   live    a limit pops out in the collapsed notch for a few seconds when
+//           it crosses the threshold, then again every `step` % above it,
+//           and when it resets; "always" keeps it there instead
 //   rings   one nested ring per agent with limits (Claude, Codex): outer =
 //           session, inner = week / window; Gemini and opencode have no
 //           limit source, so they appear only as agents to ask
@@ -37,6 +39,8 @@ NotchModule {
   function t(ruText, enText) { return ru ? ruText : enText }
 
   readonly property real threshold: Number(opt("threshold", 0.8))
+  readonly property real step: Number(opt("step", 0.05))
+  readonly property bool always: opt("always", false) === true
 
   // ------------------------------------------------------------ agents
   readonly property var known: [
@@ -102,6 +106,8 @@ NotchModule {
     rereadSoon.restart()
   }
   Timer { id: rereadSoon; interval: 8000; onTriggered: am.reread() }
+  // fresh numbers every 5 minutes, so the notch can tell when a limit climbs
+  Timer { interval: 300000; repeat: true; running: am.active && am.agents.length > 0; onTriggered: am.refresh() }
 
   // a limit's window length, from its label ("Session (5-hour)", "Weekly (7-day)")
   function windowMs(label) {
@@ -173,31 +179,31 @@ NotchModule {
   }
 
   // ---------------------------------------------------- live + events
-  live: fullest !== null && fullest.percent >= threshold
+  live: always && fullest !== null && fullest.percent >= threshold
   livePriority: 5
   liveLeft: Component {
-    Text { text: "\u{f06a9}"; color: Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body + 1 }
+    Text { text: "\u{f06a9}"; color: Color.accent; font.family: Fonts.ui; font.pixelSize: Style.font.body + 1 }
   }
   liveRight: Component {
     Text {
       text: am.fullest ? Math.round(am.fullest.percent * 100) + "%" : ""
       color: am.fullest && am.fullest.percent >= 0.95 ? Color.urgent : Color.foreground
-      font.family: Style.font.family; font.pixelSize: Style.font.caption; font.bold: true
+      font.family: Fonts.ui; font.pixelSize: Style.font.caption; font.bold: true
     }
   }
-  property var lastLevels: ({})                 // agent/limit -> 0 below 80 %, 1 ≥ 80 %, 2 ≥ 95 %
+  property var lastLevels: ({})                 // agent/limit -> 0 below the threshold, then +1 every step
   property bool primed: false
   onAgentsChanged: {
     var next = {}
     for (var i = 0; i < agents.length; i++) for (var j = 0; j < agents[i].limits.length; j++) {
       var a = agents[i], l = a.limits[j], k = a.id + "/" + l.label
-      var lvl = l.percent >= 0.95 ? 2 : l.percent >= threshold ? 1 : 0
+      var lvl = l.percent < threshold ? 0 : 1 + Math.floor((l.percent - threshold) / Math.max(0.01, step) + 1e-6)
       next[k] = lvl
       var was = lastLevels[k]
       if (!primed || !active || !notch || was === undefined) continue
       if (lvl > was)
         notch.flash({ key: "agents-" + k, icon: "\u{f06a9}", title: a.name + ": " + Math.round(l.percent * 100) + "% — " + l.label,
-                      message: l.reset ? t("сброс через ", "resets in ") + l.reset : "", progress: l.percent, ms: 4000 })
+                      message: l.reset ? t("сброс через ", "resets in ") + l.reset : "", progress: l.percent, ms: 5000 })
       else if (was > 0 && l.percent < 0.1)
         notch.flash({ key: "agents-" + k, icon: "\u{f06a9}", title: t("Лимит сброшен", "Limit reset") + " — " + a.name,
                       message: l.label, ms: 3500 })

@@ -1,19 +1,25 @@
 import QtQuick
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // The month, Monday first, today in the accent colour; ‹ › step months,
 // a click on the title comes back to this month.
 Column {
   id: cal
   property bool ru: true
+  // events (the Calendar module): dots under the days; a picked day is ringed
+  property var source: null
+  property var picked: null
+  property real rowH: Style.space(25)
+  signal pick(date day)
   property date today: new Date()
   property int shift: 0                         // months away from today's
   Timer { interval: 60000; running: true; repeat: true; onTriggered: cal.today = new Date() }
   readonly property date shown: new Date(today.getFullYear(), today.getMonth() + shift, 1)
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.ui
   readonly property var names: ru ? ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"] : ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
   readonly property var days: {
     var y = shown.getFullYear(), m = shown.getMonth()
@@ -74,21 +80,38 @@ Column {
     Repeater {
       model: cal.days
       delegate: Item {
+        id: dayCell
         required property var modelData
-        width: cal.cell; height: Style.space(25)
+        width: cal.cell; height: cal.rowH
+        readonly property date day: new Date(cal.shown.getFullYear(), cal.shown.getMonth(), modelData.n)
+        readonly property var evs: cal.source && modelData.inMonth ? cal.source.eventsOn(day) : []
+        readonly property bool isPicked: !!(cal.picked && modelData.inMonth && cal.picked.getFullYear() === day.getFullYear()
+                                            && cal.picked.getMonth() === day.getMonth() && cal.picked.getDate() === day.getDate())
         Rectangle {
           anchors.centerIn: parent
-          width: Math.min(parent.width, parent.height) - 2; height: width; radius: width / 2
-          visible: !!modelData.today
-          color: cal.accent
+          width: Math.min(parent.width, Style.space(25)) - 2; height: width; radius: width / 2
+          visible: !!dayCell.modelData.today || dayCell.isPicked
+          color: dayCell.modelData.today ? cal.accent : "transparent"
+          border.width: dayCell.isPicked && !dayCell.modelData.today ? 2 : 0
+          border.color: cal.accent
         }
         Text {
           anchors.centerIn: parent
-          text: modelData.n
-          color: modelData.today ? Color.background : !modelData.inMonth ? Qt.darker(cal.fg, 2.6)
-               : modelData.weekend ? cal.accent : cal.fg
-          font.family: cal.ff; font.pixelSize: Style.font.caption; font.bold: !!modelData.today
+          text: dayCell.modelData.n
+          color: dayCell.modelData.today ? Color.background : !dayCell.modelData.inMonth ? Qt.darker(cal.fg, 2.6)
+               : dayCell.modelData.weekend ? cal.accent : cal.fg
+          font.family: cal.ff; font.pixelSize: Style.font.caption; font.bold: !!dayCell.modelData.today
         }
+        Row {
+          anchors.horizontalCenter: parent.horizontalCenter
+          anchors.bottom: parent.bottom
+          spacing: 2
+          Repeater {
+            model: dayCell.evs.slice(0, 3)
+            delegate: Rectangle { required property var modelData; width: 4; height: 4; radius: 2; color: cal.source.colorOf(modelData) }
+          }
+        }
+        MouseArea { anchors.fill: parent; enabled: dayCell.modelData.inMonth && cal.source !== null; cursorShape: Qt.PointingHandCursor; onClicked: cal.pick(dayCell.day) }
       }
     }
   }

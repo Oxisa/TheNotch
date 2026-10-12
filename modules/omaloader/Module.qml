@@ -3,8 +3,9 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import "../.."
-import "../../../osia.omaloader" as OL
-import "../../../osia.soundhub" as SH
+import "../../vendor/omaloader" as OL
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // Omaloader as a TheNotch dashboard: the same engine and UI as the bar
 // plugin (loaded from the osia.omaloader folder), with settings in TheNotch's
@@ -27,6 +28,8 @@ NotchModule {
     settings: omod.notch && omod.notch.settings.modules && omod.notch.settings.modules.omaloader
               ? omod.notch.settings.modules.omaloader : ({})
     onPersistRequested: function(values) { if (omod.notch) omod.notch.modulePersist("omaloader", values) }
+    langOverride: omod.notch ? omod.notch.lang : ""
+    ff: Fonts.ui
   }
 
   // first run: start from the bar widget's settings
@@ -62,7 +65,7 @@ NotchModule {
     Text {
       text: "󰇚"
       color: Color.accent
-      font.family: Style.font.family; font.pixelSize: Style.font.body + 2
+      font.family: Fonts.ui; font.pixelSize: Style.font.body + 2
       SequentialAnimation on opacity {
         running: omod.engine.running; loops: Animation.Infinite
         NumberAnimation { from: 1; to: 0.35; duration: 650; easing.type: Easing.InOutQuad }
@@ -70,11 +73,34 @@ NotchModule {
       }
     }
   }
+  // iOS-style: the percent and a ring that fills (spins while unknown)
   liveRight: Component {
-    Text {
-      text: omod.pct
-      color: Color.foreground
-      font.family: Style.font.family; font.pixelSize: Style.font.caption; font.bold: true
+    Row {
+      spacing: Style.space(6)
+      Text {
+        anchors.verticalCenter: parent.verticalCenter
+        text: omod.pct
+        color: Color.foreground
+        font.family: Fonts.ui; font.pixelSize: Style.font.caption; font.bold: true
+      }
+      Canvas {
+        id: ring
+        anchors.verticalCenter: parent.verticalCenter
+        width: Style.space(18); height: width
+        readonly property real p: omod.engine.indeterminate ? 0.25 : omod.engine.progress / 100
+        readonly property color tone: Color.accent
+        onPChanged: requestPaint()
+        onToneChanged: requestPaint()
+        onPaint: {
+          var c = getContext("2d"), r = width / 2 - 2
+          c.reset(); c.lineWidth = 2.5; c.lineCap = "round"
+          c.strokeStyle = Qt.rgba(tone.r, tone.g, tone.b, 0.25)
+          c.beginPath(); c.arc(width / 2, height / 2, r, 0, Math.PI * 2); c.stroke()
+          c.strokeStyle = tone
+          c.beginPath(); c.arc(width / 2, height / 2, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0.02, p)); c.stroke()
+        }
+        RotationAnimator on rotation { from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: omod.engine.indeterminate }
+      }
     }
   }
 
@@ -89,7 +115,7 @@ NotchModule {
           anchors.verticalCenter: parent.verticalCenter
           text: "󰇚"
           color: Color.accent
-          font.family: Style.font.family; font.pixelSize: Style.space(22)
+          font.family: Fonts.ui; font.pixelSize: Style.space(22)
         }
         Column {
           width: parent.width - Style.space(32) - cancel.width - parent.spacing * 2
@@ -99,14 +125,14 @@ NotchModule {
             width: parent.width
             text: omod.engine.previewTitle || omod.engine.url
             color: Color.foreground
-            font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true
+            font.family: Fonts.ui; font.pixelSize: Style.font.body; font.bold: true
             elide: Text.ElideRight
           }
           Text {
             width: parent.width
             text: omod.engine.statusText
             color: Qt.darker(Color.foreground, 1.5)
-            font.family: Style.font.family; font.pixelSize: Style.font.caption
+            font.family: Fonts.ui; font.pixelSize: Style.font.caption
             elide: Text.ElideRight
           }
         }
@@ -117,7 +143,7 @@ NotchModule {
           icon: "󰅖"
           label: omod.engine.t("btn.cancel")
           danger: true
-          fg: Color.foreground; accent: Color.accent; fontFamily: Style.font.family
+          fg: Color.foreground; accent: Color.accent; fontFamily: Fonts.ui
           onClicked: omod.engine.cancelDownload()
         }
       }

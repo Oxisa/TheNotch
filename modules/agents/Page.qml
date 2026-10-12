@@ -1,7 +1,8 @@
 import QtQuick
 import QtQuick.Controls
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // Agents dashboard, one block: a nested ring per agent with limits, the
 // agent chips and the ask field (Enter = quick answer here, Shift+Enter / ↗ =
@@ -15,7 +16,7 @@ Column {
   readonly property color accent: Color.accent
   readonly property color bgc: Color.background
   readonly property color urgent: Color.urgent
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.ui
   function t(a, b) { return mod ? mod.t(a, b) : b }
 
   // ------------------------------------------------------------- ask

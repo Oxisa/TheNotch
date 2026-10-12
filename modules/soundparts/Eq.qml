@@ -1,6 +1,6 @@
 import QtQuick
 import "../.."
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
 
 // Settings → Sound → Equalizer: the same page as the notch's Sound → EQ tab.
 NotchModule {

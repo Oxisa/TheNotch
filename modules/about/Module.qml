@@ -4,8 +4,9 @@ import Quickshell.Io
 import qs.Commons
 import "../.."
 
-// About: this computer — its name, Omarchy and kernel versions, processor,
-// graphics, memory, disks — with a copy button. The credits sit next to it.
+// About: this computer the way fastfetch shows it — Omarchy's logo in the
+// theme's colour, the facts beside it, memory and disks as bars, the theme's
+// palette — with a copy button. The credits sit next to it.
 NotchModule {
   id: ab
   readonly property bool ru: notch !== null && notch.lang === "ru"
@@ -15,31 +16,16 @@ NotchModule {
   description: t("Сведения о системе", "System information")
   inRail: false
   core: true
-  settingsSection: "about"
-  sectionOrder: 1
+  settingsSection: "system"
+  sectionOrder: 20
   settingsPage: Component { AboutPage { mod: ab } }
+  // what fastfetch knows, as JSON (bin/sysinfo)
   property var info: ({})
+  readonly property string bin: decodeURIComponent(Qt.resolvedUrl("bin/sysinfo").toString().replace(/^file:\/\//, ""))
   Process {
     id: proc
-    command: ["bash", "-c",
-      "printf 'host=%s\\n' \"$(hostnamectl hostname 2>/dev/null || hostname)\"; " +
-      "printf 'os=%s\\n' \"$(. /etc/os-release; echo \"$PRETTY_NAME\")\"; " +
-      "printf 'omarchy=%s\\n' \"$(omarchy version 2>/dev/null | head -1)\"; " +
-      "printf 'kernel=%s\\n' \"$(uname -r)\"; " +
-      "printf 'hyprland=%s\\n' \"$(hyprctl version -j 2>/dev/null | jq -r .tag)\"; " +
-      "printf 'cpu=%s\\n' \"$(lscpu | sed -n 's/^Model name:\\s*//p' | head -1) · $(nproc) потоков\"; " +
-      "printf 'gpu=%s\\n' \"$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || lspci | grep -i vga | sed 's/.*: //' | head -1)\"; " +
-      "printf 'ram=%s\\n' \"$(awk '/MemTotal/ {printf \"%.0f ГБ\", $2/1048576}' /proc/meminfo)\"; " +
-      "printf 'disk=%s\\n' \"$(df -h --output=size,used / | tail -1 | awk '{print $2\" из \"$1}')\"; " +
-      "printf 'board=%s\\n' \"$(cat /sys/class/dmi/id/board_vendor /sys/class/dmi/id/board_name 2>/dev/null | tr '\\n' ' ')\""]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var o = {}, l = text.split("\n")
-        for (var i = 0; i < l.length; i++) { var k = l[i].indexOf("="); if (k > 0) o[l[i].slice(0, k)] = l[i].slice(k + 1).trim() }
-        ab.info = o
-      }
-    }
+    command: [ab.bin]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: { try { ab.info = JSON.parse(text) } catch (e) {} } }
   }
   function load() { if (!proc.running) proc.running = true }
 }

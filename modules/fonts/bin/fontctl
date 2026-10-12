@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Fonts for TheNotch.
+#   fontctl list            installed font families, as JSON
+#   fontctl install FILE…   a .ttf/.otf or a .zip of them → ~/.local/share/fonts/thenotch
+#   fontctl preset goetia   blackletter for Latin + Noto Serif for Cyrillic as one
+#                           family, "TheNotch Goetia" (a fontconfig alias)
+# A font new to fontconfig reaches the shell after a restart; such commands
+# answer {"restart": true}.
+set -uo pipefail
+dir="$HOME/.local/share/fonts/thenotch"
+conf="$HOME/.config/fontconfig/conf.d/60-thenotch.conf"
+case "${1:-list}" in
+  list)
+    fc-list --format '%{family[0]}\n' | sort -u | jq -Rsc 'split("\n") | map(select(length > 0)) | {ok: true, families: .}' ;;
+  install)
+    shift; mkdir -p "$dir"; n=0
+    for f in "$@"; do
+      case "${f,,}" in
+        *.zip) t=$(mktemp -d); unzip -q -o "$f" -d "$t" && while IFS= read -r x; do cp -f "$x" "$dir/"; n=$((n+1)); done < <(find "$t" -type f \( -iname '*.ttf' -o -iname '*.otf' \)); rm -rf "$t" ;;
+        *.ttf|*.otf) cp -f "$f" "$dir/"; n=$((n+1)) ;;
+      esac
+    done
+    fc-cache -f "$dir" >/dev/null 2>&1
+    jq -cn --argjson n "$n" '{ok: ($n > 0), added: $n, restart: ($n > 0), error: (if $n == 0 then "no .ttf/.otf found" else "" end)}' ;;
+  preset)
+    [[ ${2:-} == goetia ]] || { echo '{"ok":false,"error":"unknown preset"}'; exit 1; }
+    new=false
+    if ! fc-list | grep -q 'UnifrakturMaguntia'; then
+      mkdir -p "$dir"; cp -f "$(dirname "$(readlink -f "$0")")/../../../vendor/dailyquote/fonts/UnifrakturMaguntia-Book.ttf" "$dir/" 2>/dev/null || { echo '{"ok":false,"error":"UnifrakturMaguntia not found"}'; exit 1; }
+      new=true
+    fi
+    if [[ ! -f $conf ]] || ! grep -q 'TheNotch Goetia' "$conf"; then
+      mkdir -p "$(dirname "$conf")"
+      cat > "$conf" <<'XML'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<!-- Written by TheNotch (Settings → Personalisation → Fonts). -->
+<fontconfig>
+  <alias binding="strong">
+    <family>TheNotch Goetia</family>
+    <prefer>
+      <family>UnifrakturMaguntia</family>
+      <family>Noto Serif</family>
+      <family>JetBrainsMono Nerd Font</family>
+    </prefer>
+  </alias>
+</fontconfig>
+XML
+      new=true
+    fi
+    fc-cache -f >/dev/null 2>&1
+    jq -cn --argjson r $new '{ok: true, restart: $r}' ;;
+esac

@@ -10,7 +10,7 @@ NotchModule {
   icon: "\u{f072c}"
   inRail: false
   core: true
-  sectionOrder: 2
+  sectionOrder: 5
   settingsSection: "personal"
   settingsPage: Component { WidgetsPage { notch: wm.notch } }
 }

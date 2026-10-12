@@ -1,7 +1,8 @@
 import QtQuick
 import Quickshell.Widgets
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // History of notifications, newest first, with Do Not Disturb and Clear.
 Column {
@@ -12,7 +13,7 @@ Column {
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
   readonly property color bgc: Color.background
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.ui
 
   SH.HubCard {
     width: parent.width

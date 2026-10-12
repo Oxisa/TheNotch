@@ -1,7 +1,8 @@
 import QtQuick
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
 import "../../DeskStyle.js" as DS
+import "../../fonts"
 
 // "Batteries" like the macOS widget: a ring per device with its glyph in the
 // middle and the charge under it (rings), or a row each with a bar (list).
@@ -19,7 +20,7 @@ Rectangle {
   property var deskStyle: ({})
   readonly property color fg: DS.fg(deskStyle, Color.foreground)
   readonly property color accent: DS.accent(deskStyle, Color.accent)
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.desk
   readonly property color bgc: Color.background
   width: (look === "list" ? listCol.width : ringGrid.implicitWidth) + Style.space(32)
   height: (look === "list" ? listCol.implicitHeight : ringGrid.implicitHeight) + Style.space(28)

@@ -1,28 +1,28 @@
 import QtQuick
 import qs.Commons
 import "../.."
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // Settings → Network & internet.
 //   Basic     the connection (speed, latency), tunnels, Wi-Fi networks,
 //             wired adapters
-//   Advanced  + addresses, DNS servers, saved connections, router ping
+//   Details   addresses, DNS servers, saved connections, router ping
 Column {
   id: page
   property var mod: null
-  property bool advanced: false
   spacing: SH.HubStyle.gap
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
   readonly property color bgc: Color.background
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.ui
   function t(a, b) { return mod ? mod.t(a, b) : b }
   readonly property var p: mod ? mod.primary : null
   SettingsTabs {
     id: tabs
     tabs: [{ id: "conn", label: page.t("Подключение", "Connection"), icon: "\u{f059f}" }, { id: "wifi", label: "Wi-Fi", icon: "\u{f0928}" },
            { id: "wired", label: page.t("Кабель", "Wired"), icon: "\u{f0200}" }]
-          .concat(page.advanced ? [{ id: "more", label: page.t("Подробно", "Details"), icon: "\u{f02fd}" }] : [])
+          .concat([{ id: "traffic", label: page.t("Трафик", "Traffic"), icon: "\u{f046a}" }, { id: "more", label: page.t("Подробно", "Details"), icon: "\u{f02fd}" }])
   }
   readonly property string tab: tabs.current
 
@@ -275,9 +275,9 @@ Column {
     }
   }
 
-  // ------------------------------------------------------- advanced
+  // -------------------------------------------------------- details
   Card {
-    visible: (page.tab === "more") && (page.advanced && page.p !== null)
+    visible: (page.tab === "more") && (page.p !== null)
     SH.HubCaption { text: page.t("Подробности подключения", "Connection details"); icon: "\u{f02fd}"; fg: page.fg; fontFamily: page.ff }
     Info { label: page.t("Устройство", "Device"); value: page.p ? page.p.device + (page.p.mtu ? " · MTU " + page.p.mtu : "") : "" }
     Info { label: "MAC"; value: page.p && page.p.mac ? page.p.mac : "" }
@@ -288,7 +288,7 @@ Column {
     Info { label: page.t("Частота и скорость", "Band and rate"); value: page.p && page.p.freq ? page.p.freq + " · " + page.p.rate : "" }
   }
   Card {
-    visible: (page.tab === "more") && (page.advanced && page.p !== null)
+    visible: (page.tab === "more") && (page.p !== null)
     SH.HubRow {
       title: page.t("DNS-серверы", "DNS servers")
       hint: page.t("Для этого подключения; «Авто» — от роутера", "For this connection; Auto comes from the router")
@@ -325,7 +325,7 @@ Column {
     }
   }
   Card {
-    visible: (page.tab === "more") && (page.advanced)
+    visible: (page.tab === "more")
     SH.HubCaption { text: page.t("Сохранённые подключения", "Saved connections"); icon: "\u{f0193}"; fg: page.fg; fontFamily: page.ff }
     Repeater {
       model: page.mod ? page.mod.saved : []
@@ -344,4 +344,6 @@ Column {
       }
     }
   }
+
+  TrafficPage { visible: page.tab === "traffic"; width: page.width; mod: page.mod }
 }

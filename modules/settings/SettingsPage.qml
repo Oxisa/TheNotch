@@ -1,7 +1,7 @@
 import QtQuick
 import Quickshell
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
 
 Column {
   id: page
@@ -60,14 +60,6 @@ Column {
         }
       }
     }
-    SH.HubRow {
-      title: page.t("hideBar"); hint: page.t("hideBarHint"); fg: page.fg; fontFamily: page.ff
-      SH.HubSwitch {
-        checked: page.notch && page.notch.hideBar
-        fg: page.fg; accent: page.accent; ink: page.bgc
-        onToggled: page.notch.persist({ hideBar: !checked })
-      }
-    }
   }
 
   Card {
@@ -92,6 +84,15 @@ Column {
         value: page.notch ? page.notch.lang : "ru"
         foreground: page.fg; accent: page.accent; background: page.bgc; fontFamily: page.ff
         onChanged: function(v) { page.notch.persist({ lang: v }) }
+      }
+    }
+    SH.HubRow {
+      visible: page.part === "system"
+      title: page.t("hideBar"); hint: page.t("hideBarHint"); fg: page.fg; fontFamily: page.ff
+      SH.HubSwitch {
+        checked: page.notch && page.notch.hideBar
+        fg: page.fg; accent: page.accent; ink: page.bgc
+        onToggled: page.notch.persist({ hideBar: !checked })
       }
     }
   }

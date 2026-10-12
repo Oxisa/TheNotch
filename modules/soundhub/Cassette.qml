@@ -1,8 +1,9 @@
 import QtQuick
 import Quickshell.Services.Mpris
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
 import "../../DeskStyle.js" as DS
+import "../../fonts"
 
 // "Now playing" as a cassette: a label with the title and artist, two reels
 // that turn while it plays — tape winds from the left reel to the right one as
@@ -21,7 +22,7 @@ Rectangle {
   readonly property color fg: DS.fg(deskStyle, Color.foreground)
   readonly property color accent: DS.accent(deskStyle, Color.accent)
   readonly property color bgc: Color.background
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.desk
 
   property real pos: player ? player.position : 0
   readonly property real len: player && player.lengthSupported ? player.length : 0

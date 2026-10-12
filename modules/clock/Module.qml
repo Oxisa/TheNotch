@@ -3,10 +3,11 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import "../.."
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
 import "kronos"
 import "kronos/ClockModel.js" as Clock
 import "../../DeskStyle.js" as DS
+import "../../fonts"
 
 // Clock: Kronos's orbital/digital desktop clock as a TheNotch widget (a fork
 // of MASH2RAFI/omarchy-kronos, MIT — see kronos/README.md for what changed).
@@ -29,7 +30,7 @@ NotchModule {
   readonly property var entry: notch && notch.settings.modules && notch.settings.modules.clock ? notch.settings.modules.clock : ({})
   readonly property var cfg: Clock.readSettings(entry)
   // digits: the theme's font, blackletter (the quotes' UnifrakturMaguntia) or a serif
-  FontLoader { id: gothic; source: Qt.resolvedUrl("../../../osia.dailyquote/fonts/UnifrakturMaguntia-Book.ttf") }
+  FontLoader { id: gothic; source: Qt.resolvedUrl("../../vendor/dailyquote/fonts/UnifrakturMaguntia-Book.ttf") }
   readonly property string digitStyle: String(opt("digits", "default"))
   readonly property string digitFont: digitStyle === "gothic" ? gothic.name : digitStyle === "serif" ? "Noto Serif" : ""
 
@@ -130,8 +131,8 @@ NotchModule {
       showSeconds: cm.cfg.showSeconds
       showDate: cm.cfg.showDate
       accentMode: cm.cfg.accentMode
-      clockFont: cm.cfg.clockFont
-      labelFont: cm.cfg.labelFont
+      clockFont: Fonts.desk            // the widget font (Personalisation → Fonts)
+      labelFont: Fonts.desk
       centerLayout: cm.cfg.centerLayout
       ringDiameter: cm.cfg.ringDiameter
       ringGap: cm.cfg.ringGap

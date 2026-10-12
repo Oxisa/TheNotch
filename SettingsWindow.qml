@@ -3,16 +3,17 @@ import QtQuick.Controls
 import Quickshell
 import Quickshell.Wayland
 import qs.Commons
-import "../osia.soundhub" as SH
+import "vendor/soundhub" as SH
 import "Sections.js" as Sections
+import "fonts"
 
 // TheNotch's settings window, organised like Windows Settings: fixed
 // sections on the left (System, Network & internet, Bluetooth & devices,
 // Displays, Sound, Input, Personalisation, Account, Apps, Modules, Omarchy
 // plugins, About). Modules don't get sections of their own — each puts its
 // settings into one of them (`settingsSection`); a section with several
-// parts shows them as tabs, one at a time. A part that declares `advanced`
-// gets the section's Basic / Advanced switch, like a calculator's two modes.
+// parts shows them as tabs, one at a time. Every setting of a section is
+// always shown — there is no Basic / Advanced split.
 // Esc, the × or a click outside closes it.
 PanelWindow {
   id: win
@@ -21,7 +22,7 @@ PanelWindow {
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
   readonly property color bgc: Color.background
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.ui
   readonly property bool ru: notch !== null && notch.lang === "ru"
 
   function partsOf(id) {
@@ -40,14 +41,17 @@ PanelWindow {
   property var tabOf: ({})
   readonly property var part: {
     if (!parts.length) return null
-    var want = notch && notch.settingsFocus ? notch.settingsFocus : (current ? tabOf[current.id] : "")
+    var want = notch && notch.settingsFocus ? notch.settingsFocus : (current ? (tabOf[current.id] || savedTabs[current.id] || "") : "")
     for (var i = 0; i < parts.length; i++) if (parts[i].moduleId === want) return parts[i]
     return parts[0]
   }
   function openTab(m) { var o = Object.assign({}, tabOf); o[current.id] = m.moduleId; tabOf = o; if (notch) notch.settingsFocus = "" }
-  readonly property bool advanced: notch !== null && current !== null && notch.advancedIn[current.id] === true
-  // does anything in this section have an Advanced mode?
-  property bool hasAdvanced: false
+  // remember the section and its tab for the next time; the window reads a
+  // copy taken when it opens, so saving doesn't loop back into `part`
+  property var savedTabs: ({})
+  onVisibleChanged: if (visible && notch) savedTabs = JSON.parse(JSON.stringify(notch.settingsTabs))
+  Component.onCompleted: if (notch) savedTabs = JSON.parse(JSON.stringify(notch.settingsTabs))
+  onPartChanged: if (notch && current && part && visible) { var c = current.id, m = part.moduleId; Qt.callLater(function() { notch.rememberTab(c, m) }) }
 
   color: "transparent"
   anchors { top: true; bottom: true; left: true; right: true }
@@ -190,30 +194,6 @@ PanelWindow {
         anchors.right: parent.right
         anchors.verticalCenter: heading.verticalCenter
         spacing: Style.space(10)
-        // Basic / Advanced for this section
-        Rectangle {
-          visible: win.hasAdvanced
-          anchors.verticalCenter: parent.verticalCenter
-          height: Style.space(30)
-          width: modeRow.implicitWidth + Style.space(8)
-          radius: height / 2
-          color: SH.HubStyle.tint(win.fg, SH.HubStyle.surface)
-          Row {
-            id: modeRow
-            anchors.centerIn: parent
-            Repeater {
-              model: [{ adv: false, label: win.ru ? "Обычный" : "Basic" }, { adv: true, label: win.ru ? "Расширенный" : "Advanced" }]
-              delegate: Rectangle {
-                required property var modelData
-                readonly property bool on: win.advanced === modelData.adv
-                height: Style.space(24); width: ml.implicitWidth + Style.space(22); radius: height / 2
-                color: on ? win.accent : "transparent"
-                Text { id: ml; anchors.centerIn: parent; text: modelData.label; color: parent.on ? win.bgc : win.fg; font.family: win.ff; font.pixelSize: Style.font.caption; font.bold: parent.on }
-                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: win.notch.setAdvanced(win.current.id, modelData.adv) }
-              }
-            }
-          }
-        }
         SH.HubChip {
           anchors.verticalCenter: parent.verticalCenter
           iconOnly: true
@@ -290,8 +270,6 @@ PanelWindow {
             active: !!(win.part && win.part.active)
             sourceComponent: win.part ? win.part.settingsPage : null
             onLoaded: {
-              win.hasAdvanced = "advanced" in item
-              if (win.hasAdvanced) item.advanced = Qt.binding(function() { return win.advanced })
               flick.contentY = 0
             }
           }
@@ -299,5 +277,5 @@ PanelWindow {
       }
     }
   }
-  onCurrentChanged: { hasAdvanced = false; flick.contentY = 0 }
+  onCurrentChanged: flick.contentY = 0
 }

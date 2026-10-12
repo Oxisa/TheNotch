@@ -6,6 +6,9 @@ import Quickshell.Services.Pipewire
 import qs.Commons
 import "I18n.js" as I18n
 import "modules/index.js" as Index
+import "fonts"
+import "vendor/notifications" as Notif
+import "vendor/livewallpaper" as Live
 
 // TheNotch core. Owns the state everything else reads:
 //   settings   ~/.config/thenotch/settings.json (core keys + modules.<id>)
@@ -20,6 +23,13 @@ import "modules/index.js" as Index
 Item {
   id: core
 
+  // Services that used to be separate plugins, now part of TheNotch:
+  // the notification daemon (DND, history; the notch draws the pop-ups)
+  // and video wallpapers (vendor/, see vendor/README.md).
+  Notif.NotificationService { shell: null }
+  Live.LiveWallpaper {}
+
+
   property var shell: null
   property var manifest: null
 
@@ -28,7 +38,10 @@ Item {
   readonly property color accent: Color.accent
   readonly property color urgent: Color.urgent
   readonly property color islandColor: opt("look", "theme") === "black" ? "#000000" : Color.background
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.ui
+  // the fonts chosen in Settings → Personalisation → Fonts ("" = the system's)
+  Binding { target: Fonts; property: "uiChoice"; value: String(core.opt("fontUi", "")) }
+  Binding { target: Fonts; property: "deskChoice"; value: String(core.opt("fontDesk", "")) }
   readonly property string lang: String(opt("lang", "ru"))
   function t(key, args) { return I18n.t(lang, key, args) }
 
@@ -198,16 +211,25 @@ Item {
   property string settingsSection: "settings"
   // id: a section ("network") or a module ("weather" → its section, scrolled to it)
   property string settingsFocus: ""
+  // where the window was last (section + its tab per section), kept across
+  // restarts; the first time ever: System → This computer
+  readonly property var settingsTabs: opt("settingsTabs", ({ system: "about" }))
+  readonly property string lastSection: String(opt("lastSection", "system"))
+  function rememberTab(section, tab) {
+    if (!section) return
+    var t = Object.assign({}, settingsTabs)
+    if (tab) t[section] = tab
+    if (t[section] === settingsTabs[section] && section === lastSection) return
+    persist({ settingsTabs: t, lastSection: section })
+  }
   function openSettings(id) {
     var m = moduleById(id)
     if (m && m.settingsPage) { settingsSection = m.settingsSection; settingsFocus = id }
-    else { settingsSection = id || "system"; settingsFocus = "" }
+    else if (id && id !== "settings") { settingsSection = id; settingsFocus = "" }
+    else { settingsSection = lastSection; settingsFocus = "" }
     expanded = false; hovered = false
     settingsOpen = true
   }
-  // "Basic / Advanced" per section, like a calculator's two modes
-  readonly property var advancedIn: opt("advanced", ({}))
-  function setAdvanced(section, on) { var a = JSON.parse(JSON.stringify(advancedIn)); a[section] = on; persist({ advanced: a }) }
   function openModule(id) {
     var m = moduleById(id)
     if (m && m.topTab) lastTab = id
@@ -217,7 +239,14 @@ Item {
   property bool hovered: false
   property bool expanded: false
   property bool pointerInside: false
-  readonly property bool peeking: hovered && !expanded && liveModule !== null && liveModule.peek !== null
+  // mic / camera in use (Privacy): dots on the collapsed notch; hovering
+  // them peeks at who. Sticky until the pointer leaves the notch.
+  readonly property var privacy: { var ms = modules; for (var i = 0; i < ms.length; i++) if (ms[i].moduleId === "privacy" && ms[i].active) return ms[i]; return null }
+  readonly property bool privacyShown: privacy !== null && privacy.inUse && privacy.showDots
+  property bool privacyHover: false
+  onHoveredChanged: if (!hovered) privacyHover = false
+  readonly property var peekModule: privacyHover && privacyShown ? privacy : liveModule !== null && liveModule.peek !== null ? liveModule : null
+  readonly property bool peeking: hovered && !expanded && peekModule !== null
 
   // what the island shows: expanded > event > peek > live > idle
   readonly property string mode: expanded ? "expanded"
@@ -239,6 +268,44 @@ Item {
     pointerInside = inside
     if (inside) { visited = true; leaveTimer.stop(); hoverTimer.restart() }
     else { hoverTimer.stop(); if (!leaveTimer.running) leaveTimer.start() }
+  }
+  // ------------------------------------------------ the collapsed notch
+  // what each side shows (Settings → Personalisation → Notch); the rest of
+  // the catalogue waits in the editor's pool
+  readonly property var slotCatalog: ["workspace", "apps", "shelf", "weather", "clock", "layout", "privacy", "mic"]
+  readonly property var slots: Object.assign({ left: ["workspace", "shelf"], right: ["weather", "clock", "privacy", "mic"] }, opt("slots", ({})))
+  // something is being dragged over the notch (a drop puts it on the Shelf)
+  property bool dropHover: false
+  function setSlots(v) { persist({ slots: v }) }
+  readonly property bool micMuted: !!(Pipewire.defaultAudioSource && Pipewire.defaultAudioSource.audio && Pipewire.defaultAudioSource.audio.muted)
+  // the keyboard layout, short ("EN", "RU")
+  property string kbLayout: ""
+  function shortLayout(name) {
+    var n = String(name || "")
+    var map = { English: "EN", Russian: "RU", German: "DE", Ukrainian: "UA", French: "FR", Spanish: "ES", Polish: "PL", Belarusian: "BY", Kazakh: "KZ" }
+    for (var k in map) if (n.indexOf(k) === 0) return map[k]
+    return n.slice(0, 2).toUpperCase()
+  }
+  Connections {
+    target: Hyprland
+    function onRawEvent(ev) { if (ev.name === "activelayout") { var d = String(ev.data); core.kbLayout = core.shortLayout(d.slice(d.indexOf(",") + 1)) } }
+  }
+  Process {
+    running: true
+    command: ["bash", "-c", "hyprctl devices -j | jq -r '.keyboards[] | select(.main) | .active_keymap' | head -1"]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: core.kbLayout = core.shortLayout(String(text).trim()) }
+  }
+
+  // the microphone only (middle click on the notch, IPC micMute): mute or
+  // unmute the default input and say which way it went
+  PwObjectTracker { objects: [Pipewire.defaultAudioSource] }
+  function toggleMic() {
+    var s = Pipewire.defaultAudioSource
+    if (!s || !s.audio) return
+    s.audio.muted = !s.audio.muted
+    flash({ key: "mic-mute", icon: s.audio.muted ? "\u{f036d}" : "\u{f036c}",
+            title: s.audio.muted ? (lang === "ru" ? "Микрофон выключен" : "Microphone off") : (lang === "ru" ? "Микрофон включён" : "Microphone on"),
+            message: String(s.description || s.nickname || s.name), ms: 1600 })
   }
   function toggleExpanded() { expanded = !expanded; if (!expanded) hovered = false }
   // clicks only open; leaving the notch is what closes it
@@ -525,10 +592,18 @@ Item {
     function bar(show: string): void { core.persist({ hideBar: show !== "on" && show !== "true" }) }
     function flash(json: string): void { try { core.flash(JSON.parse(json)) } catch (e) {} }
     function state(): string { return core.mode }
-    function settings(section: string): void { core.openSettings(section || core.currentId) }
+    function settings(section: string): void { core.openSettings(section) }
     function layout(): void { core.editLayout(!core.editingLayout) }
     // mute or unmute the default microphone (bind it to a key in Hyprland)
-    function micMute(): void { var s = Pipewire.defaultAudioSource; if (s && s.audio) s.audio.muted = !s.audio.muted }
+    // the pomodoro (Centre): start or pause, stop
+    function pomodoro(): void { var c = core.moduleById("center"); if (c) { c.clockMode = "pomodoro"; c.pomoStartPause() } }
+    function pomodoroStop(): void { var c = core.moduleById("center"); if (c) c.pomoReset() }
+    function micMute(): void { core.toggleMic() }
+    // the workspaces overview (Super + `): open / close
+    // snap zones while dragging with Super + Shift (bindings.lua calls these)
+    function snapStart(): void { var w = core.moduleById("workspaces"); if (w && w.active) w.snapStart() }
+    function snapEnd(): void { var w = core.moduleById("workspaces"); if (w && w.active) w.snapEnd() }
+    function overview(): void { var w = core.moduleById("workspaces"); if (w && w.active) { core.expanded = false; w.overview = !w.overview } }
     function debug(): string { return JSON.stringify({ mode: core.mode, inside: core.pointerInside, visited: core.visited, hovered: core.hovered, leave: leaveTimer.running, loaded: core.settingsLoaded, hideBar: core.hideBar, barHidden: core.barHidden, startup: barStartup.running, ears: core.modules.filter(function(m) { return m.ear }).map(function(m) { return m.moduleId + "=" + m.ear }) }) }
   }
 }

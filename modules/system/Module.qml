@@ -3,9 +3,10 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import "../.."
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
 import "../agents"
 import "../../DeskStyle.js" as DS
+import "../../fonts"
 
 // System: CPU, memory and GPU load as a desktop widget — one nested ring
 // each (outer: load; inner: temperature, or video memory for the GPU), the
@@ -21,7 +22,7 @@ NotchModule {
   description: t("Загрузка процессора, памяти и видеокарты, температуры — виджетом на рабочем столе",
                  "CPU, memory and GPU load and temperatures as a desktop widget")
   topTab: true
-  pageWidth: 720
+  pageWidth: 760
   page: Component { SystemPage { mod: sm } }
   function opt(key, fallback) { return notch ? notch.moduleOpt("system", key, fallback) : fallback }
   function persist(values) { if (notch) notch.modulePersist("system", values) }
@@ -123,7 +124,7 @@ NotchModule {
                                 : "\u{f0045} " + sm.rate(sm.data.down || 0) + "    \u{f005d} " + sm.rate(sm.data.up || 0)
         horizontalAlignment: Text.AlignHCenter
         color: Qt.darker(Color.foreground, 1.2)
-        font.family: Style.font.family; font.pixelSize: Style.font.caption
+        font.family: Fonts.desk; font.pixelSize: Style.font.caption
       }
     }
   }
@@ -134,7 +135,7 @@ NotchModule {
         title: sm.t("Показывать на рабочем столе", "Show on the desktop")
         hint: sm.t("Кольца: снаружи загрузка, внутри температура (у видеокарты — видеопамять)",
                    "Rings: load outside, temperature inside (video memory for the GPU)")
-        fg: Color.foreground; fontFamily: Style.font.family
+        fg: Color.foreground; fontFamily: Fonts.ui
         SH.HubSwitch {
           checked: sm.deskEnabled
           fg: Color.foreground; accent: Color.accent; ink: Color.background
@@ -156,7 +157,7 @@ NotchModule {
             on: on_
             subtle: true
             h: Style.space(26)
-            fg: Color.foreground; accent: Color.accent; fontFamily: Style.font.family
+            fg: Color.foreground; accent: Color.accent; fontFamily: Fonts.ui
             onClicked: {
               var m = sm.shownMetrics.slice()
               if (on_) m = m.filter(function(x) { return x !== modelData.id }); else m.push(modelData.id)

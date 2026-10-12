@@ -6,7 +6,7 @@ import "../.."
 // which events show (notifications, System).
 NotchModule {
   id: mod
-  title: notch && notch.lang === "ru" ? "Язык" : "Language"
+  title: notch && notch.lang === "ru" ? "Оболочка" : "Shell"
   icon: "\u{f05ca}"
   inRail: false
   core: true

@@ -64,6 +64,46 @@ NotchModule {
   function removeLayout(i) { var l = st.layouts.slice(); if (l.length > 1) { l.splice(i, 1); saveLayouts(l) } }
   function moveLayout(i, d) { var l = st.layouts.slice(), j = i + d; if (j < 0 || j >= l.length) return; var x = l[i]; l[i] = l[j]; l[j] = x; saveLayouts(l) }
 
+  // cursor themes (bin/cursorctl): the gallery, packs in ~/Downloads, apply/import
+  readonly property string cursorBin: decodeURIComponent(Qt.resolvedUrl("bin/cursorctl").toString().replace(/^file:\/\//, ""))
+  property var cursors: ({ themes: [], current: {} })
+  property var packs: []
+  property string cursorBusy: ""
+  Process {
+    id: cur
+    property var args: []
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        try {
+          var d = JSON.parse(text)
+          if (cur.args[0] === "list") im.cursors = d
+          else if (cur.args[0] === "downloads") im.packs = d.packs || []
+          else { im.cursorError = d.ok ? "" : (d.error || ""); im.cursorCmd(["list"]); im.cursorCmd(["downloads"]) }
+        } catch (e) {}
+        im.cursorBusy = ""
+        im.cursorNext()
+      }
+    }
+  }
+  property string cursorError: ""
+  property var cursorQueue: []
+  function cursorNext() {
+    if (cur.running || !cursorQueue.length) return
+    cur.args = cursorQueue[0]; cursorQueue = cursorQueue.slice(1)
+    cursorBusy = cur.args[0] === "list" || cur.args[0] === "downloads" ? "" : cur.args.join(" ")
+    cur.command = [cursorBin].concat(cur.args); cur.running = true
+  }
+  function cursorCmd(args) { cursorQueue = cursorQueue.concat([args]); cursorNext() }
+  // a zip from anywhere: the system's chooser (the settings window steps aside)
+  Process {
+    id: pickZip
+    command: ["omarchy-file-select", "--title", "Cursor pack (.zip)", "--extensions", "zip"]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: { var f = text.trim(); if (f) im.cursorCmd(["import", f]) } }
+    onExited: if (im.notch) im.notch.openSettings("input")
+  }
+  function importZip() { if (notch) notch.settingsOpen = false; pickZip.running = true }
+
   readonly property bool watching: active && notch !== null && notch.settingsOpen && notch.settingsSection === "input"
-  onWatchingChanged: if (watching) cmd(["state"])
+  onWatchingChanged: if (watching) { cmd(["state"]); cursorCmd(["list"]); cursorCmd(["downloads"]) }
 }

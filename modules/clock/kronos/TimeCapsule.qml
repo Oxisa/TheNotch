@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import "../../../fonts"
 
 Rectangle {
   id: root
@@ -7,7 +8,7 @@ Rectangle {
   property string text: ""
   property real uiScale: 1
   property real textScale: 1
-  property string fontFamily: Style.font.family
+  property string fontFamily: Fonts.desk
   property real fontSize: 15
   property int fontWeight: Font.Bold
   property color textColor: Color.foreground

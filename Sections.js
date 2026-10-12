@@ -10,9 +10,9 @@ var SECTIONS = [
   { id: "sound",     icon: "\u{f057e}", ru: "Звук",                  en: "Sound" },
   { id: "input",     icon: "\u{f030c}", ru: "Ввод",                  en: "Input" },
   { id: "personal",  icon: "\u{f03d8}", ru: "Персонализация",        en: "Personalisation" },
-  { id: "account",   icon: "\u{f0009}", ru: "Учётная запись",        en: "Account" },
+  { id: "workspaces", icon: "\u{f0570}", ru: "Рабочие столы",        en: "Workspaces" },
+  { id: "privacy",   icon: "\u{f0565}", ru: "Конфиденциальность",    en: "Privacy" },
   { id: "apps",      icon: "\u{f003b}", ru: "Приложения",            en: "Apps" },
   { id: "modules",   icon: "\u{f0a1a}", ru: "Модули",                en: "Modules" },
   { id: "plugins",   icon: "\u{f0431}", ru: "Плагины Omarchy",       en: "Omarchy plugins" },
-  { id: "about",     icon: "\u{f02fd}", ru: "О системе",             en: "About" }
 ]

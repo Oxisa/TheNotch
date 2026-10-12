@@ -1,0 +1,26 @@
+singleton CavaHub 1.0 CavaHub.qml
+CoverColors 1.0 CoverColors.qml
+EqPage 1.0 EqPage.qml
+FocusPage 1.0 FocusPage.qml
+FocusState 1.0 FocusState.qml
+HubSlider 1.0 HubSlider.qml
+LyricsColumn 1.0 LyricsColumn.qml
+Media 1.0 Media.qml
+MixerPage 1.0 MixerPage.qml
+NowPlaying 1.0 NowPlaying.qml
+PlayerColumn 1.0 PlayerColumn.qml
+SettingsPage 1.0 SettingsPage.qml
+SoundPage 1.0 SoundPage.qml
+Spectrum 1.0 Spectrum.qml
+Vinyl 1.0 Vinyl.qml
+singleton HubStyle 1.0 HubStyle.qml
+HubCard 1.0 HubCard.qml
+HubCaption 1.0 HubCaption.qml
+HubChip 1.0 HubChip.qml
+HubSelect 1.0 HubSelect.qml
+HubSwitch 1.0 HubSwitch.qml
+HubRow 1.0 HubRow.qml
+MiniPlayer 1.0 MiniPlayer.qml
+HubPlacePicker 1.0 HubPlacePicker.qml
+HubField 1.0 HubField.qml
+HubProgress 1.0 HubProgress.qml

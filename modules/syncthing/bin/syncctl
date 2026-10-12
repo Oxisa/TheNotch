@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""Syncthing for TheNotch, read from its local REST API (the key from its own
+config.xml): running?, this device's ID, folders with their state and
+completion, other devices and whether they're connected. One JSON object."""
+import json, re, subprocess, urllib.request
+from pathlib import Path
+
+def out(o):
+    print(json.dumps(o, ensure_ascii=False))
+
+cfg = next((p for p in [Path.home() / ".local/state/syncthing/config.xml", Path.home() / ".config/syncthing/config.xml"] if p.exists()), None)
+active = subprocess.run(["systemctl", "--user", "is-active", "--quiet", "syncthing"]).returncode == 0
+if not cfg:
+    out({"ok": True, "installed": False, "running": active}); raise SystemExit
+xml = cfg.read_text()
+key = (re.search(r"<apikey>([^<]+)", xml) or [None, ""])[1]
+gui = re.search(r"<gui[^>]*>.*?<address>([^<]+)</address>", xml, re.S)
+addr = gui.group(1) if gui else "127.0.0.1:8384"
+
+def get(path):
+    req = urllib.request.Request(f"http://{addr}{path}", headers={"X-API-Key": key})
+    with urllib.request.urlopen(req, timeout=4) as r:
+        return json.load(r)
+
+try:
+    me = get("/rest/system/status")["myID"]
+    folders = get("/rest/config/folders")
+    devices = get("/rest/config/devices")
+    conns = get("/rest/system/connections").get("connections", {})
+except Exception as e:
+    out({"ok": True, "installed": True, "running": False, "url": f"http://{addr}"}); raise SystemExit
+fl = []
+for f in folders:
+    try:
+        st = get(f"/rest/db/status?folder={f['id']}")
+        comp = get(f"/rest/db/completion?folder={f['id']}").get("completion", 100)
+    except Exception:
+        st, comp = {}, 0
+    fl.append({"id": f["id"], "label": f.get("label") or f["id"], "path": f["path"], "paused": f.get("paused", False),
+               "state": st.get("state", ""), "files": st.get("globalFiles", 0), "bytes": st.get("globalBytes", 0), "completion": round(comp, 1)})
+dl = [{"id": d["deviceID"], "name": d.get("name") or d["deviceID"][:7], "connected": conns.get(d["deviceID"], {}).get("connected", False)}
+      for d in devices if d["deviceID"] != me]
+out({"ok": True, "installed": True, "running": True, "url": f"http://{addr}", "myID": me, "folders": fl, "devices": dl})

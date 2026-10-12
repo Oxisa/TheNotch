@@ -2,6 +2,7 @@ import QtQuick
 import qs.Commons
 import "ClockModel.js" as Clock
 import "ClockTheme.js" as Theme
+import "../../../fonts"
 
 // Full ring dial — 60 ticks, numeric label at every tick (00–59).
 Canvas {
@@ -24,7 +25,7 @@ Canvas {
   property bool showLabels: true
   property real labelScale: 1
   property real chromeScale: 1
-  property string labelFont: Style.font.family
+  property string labelFont: Fonts.desk
   property real arcFrom: NaN
   property real arcTo: NaN
   property bool showGuideRing: false

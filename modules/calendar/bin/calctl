@@ -1,0 +1,226 @@
+#!/usr/bin/env python3
+"""Calendar for TheNotch: ICS subscriptions (Google, Outlook, iCloud — the
+calendar's secret iCal link, no account sign-in) and your own events.
+
+  events [--refresh]        events from a month ago to two months ahead,
+                            repeating ones expanded; subscriptions are
+                            re-downloaded when older than 15 minutes
+  add JSON                  your own event {title, start, end?, allDay?, where?, link?}
+  remove ID                 delete one of your own events
+
+Subscriptions live in ~/.config/thenotch/calendars.json [{name, url, color}],
+your events in ~/.config/thenotch/events.json. Every command prints one JSON
+object. Events carry a meeting link when one is found (Meet, Zoom, Teams,
+Telemost, Jitsi…), so a reminder can offer "Join".
+"""
+import json, os, re, subprocess, sys, time, uuid
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    ZoneInfo = None
+
+HOME = Path.home()
+SUBS = HOME / ".config/thenotch/calendars.json"
+OWN = HOME / ".config/thenotch/events.json"
+CACHE = HOME / ".cache/thenotch/calendar"
+LINK = re.compile(r"https?://[^\s<>\"\\]*(?:meet\.google|zoom\.us|teams\.microsoft|teams\.live|telemost\.yandex|meet\.jit\.si|whereby|webex)[^\s<>\"\\]*", re.I)
+LOCAL = datetime.now().astimezone().tzinfo
+
+
+def out(obj):
+    print(json.dumps(obj, ensure_ascii=False))
+    return 0 if obj.get("ok", True) else 1
+
+
+def load(p, default):
+    try:
+        return json.loads(p.read_text())
+    except (OSError, ValueError):
+        return default
+
+
+# ------------------------------------------------------------------ ICS
+def unfold(text):
+    return re.sub(r"\r?\n[ \t]", "", text).splitlines()
+
+
+def unescape(v):
+    return v.replace("\\n", "\n").replace("\\N", "\n").replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\")
+
+
+def parse_dt(value, params):
+    """→ (datetime in local time, all_day)"""
+    if params.get("VALUE") == "DATE" or re.fullmatch(r"\d{8}", value):
+        d = datetime.strptime(value[:8], "%Y%m%d")
+        return d.replace(tzinfo=LOCAL), True
+    utc = value.endswith("Z")
+    d = datetime.strptime(value.rstrip("Z")[:15], "%Y%m%dT%H%M%S")
+    if utc:
+        d = d.replace(tzinfo=timezone.utc)
+    elif "TZID" in params and ZoneInfo:
+        try:
+            d = d.replace(tzinfo=ZoneInfo(params["TZID"].strip('"')))
+        except Exception:
+            d = d.replace(tzinfo=LOCAL)
+    else:
+        d = d.replace(tzinfo=LOCAL)
+    return d.astimezone(LOCAL), False
+
+
+def events_of(text):
+    evs, cur = [], None
+    for line in unfold(text):
+        if line == "BEGIN:VEVENT":
+            cur = {}
+        elif line == "END:VEVENT" and cur is not None:
+            evs.append(cur); cur = None
+        elif cur is not None and ":" in line:
+            head, value = line.split(":", 1)
+            name, *ps = head.split(";")
+            params = dict(p.split("=", 1) for p in ps if "=" in p)
+            cur.setdefault(name.upper(), []).append((value, params))
+    return evs
+
+
+WD = {"MO": 0, "TU": 1, "WE": 2, "TH": 3, "FR": 4, "SA": 5, "SU": 6}
+
+
+def expand(start, rrule, exdates, lo, hi):
+    """Occurrences of a repeating event within [lo, hi] (common rules only)."""
+    r = dict(p.split("=", 1) for p in rrule.split(";") if "=" in p)
+    freq, step = r.get("FREQ", "DAILY"), int(r.get("INTERVAL", 1))
+    count = int(r["COUNT"]) if "COUNT" in r else None
+    until = parse_dt(r["UNTIL"], {})[0] if "UNTIL" in r else None
+    days = [WD[d[-2:]] for d in r.get("BYDAY", "").split(",") if d[-2:] in WD]
+    res, n, cur = [], 0, start
+    for _ in range(5000):
+        cands = [cur]
+        if freq == "WEEKLY" and days:
+            week = cur - timedelta(days=cur.weekday())
+            cands = sorted(week + timedelta(days=d) for d in days)
+            cands = [c for c in cands if c >= start]
+        for c in cands:
+            if until and c > until or count is not None and n >= count:
+                return res
+            n += 1
+            if lo <= c <= hi and c.replace(tzinfo=None) not in exdates:
+                res.append(c)
+        if cur > hi:
+            break
+        if freq == "DAILY":
+            cur += timedelta(days=step)
+        elif freq == "WEEKLY":
+            cur += timedelta(weeks=step)
+        elif freq == "MONTHLY":
+            m = cur.month - 1 + step
+            try:
+                cur = cur.replace(year=cur.year + m // 12, month=m % 12 + 1)
+            except ValueError:
+                cur += timedelta(days=31 * step)
+        elif freq == "YEARLY":
+            try:
+                cur = cur.replace(year=cur.year + step)
+            except ValueError:
+                cur += timedelta(days=365 * step)
+        else:
+            break
+    return res
+
+
+def from_ics(text, cal, lo, hi):
+    res = []
+    for ev in events_of(text):
+        if "DTSTART" not in ev:
+            continue
+        v, p = ev["DTSTART"][0]
+        start, all_day = parse_dt(v, p)
+        if "DTEND" in ev:
+            end = parse_dt(*ev["DTEND"][0])[0]
+        else:
+            end = start + (timedelta(days=1) if all_day else timedelta(hours=1))
+        length = end - start
+        title = unescape(ev.get("SUMMARY", [("", {})])[0][0]) or "—"
+        where = unescape(ev.get("LOCATION", [("", {})])[0][0])
+        desc = unescape(ev.get("DESCRIPTION", [("", {})])[0][0])
+        url = ev.get("URL", [("", {})])[0][0]
+        m = LINK.search(" ".join([where, desc, url]))
+        link = m.group(0) if m else (url if url.startswith("http") else "")
+        if ev.get("STATUS", [("", {})])[0][0].upper() == "CANCELLED":
+            continue
+        exd = set()
+        for val, prm in ev.get("EXDATE", []):
+            for x in val.split(","):
+                try:
+                    exd.add(parse_dt(x, prm)[0].replace(tzinfo=None))
+                except ValueError:
+                    pass
+        starts = expand(start, ev["RRULE"][0][0], exd, lo, hi) if "RRULE" in ev else ([start] if start <= hi and start + length >= lo else [])
+        uid = ev.get("UID", [(str(uuid.uuid4()), {})])[0][0]
+        for s in starts:
+            res.append({"id": f"{uid}@{s.isoformat()}", "title": title, "start": s.isoformat(), "end": (s + length).isoformat(),
+                        "allDay": all_day, "where": where, "link": link, "cal": cal["name"], "color": cal.get("color", ""), "own": False})
+    return res
+
+
+def fetch(cal, force):
+    CACHE.mkdir(parents=True, exist_ok=True)
+    f = CACHE / (re.sub(r"\W+", "_", cal["url"])[-80:] + ".ics")
+    if force or not f.exists() or time.time() - f.stat().st_mtime > 900:
+        url = cal["url"].replace("webcal://", "https://", 1)
+        r = subprocess.run(["curl", "-fsSL", "--max-time", "25", url], capture_output=True)
+        if r.returncode == 0 and b"BEGIN:VCALENDAR" in r.stdout[:2000]:
+            f.write_bytes(r.stdout)
+        elif not f.exists():
+            return None, "could not download"
+    return f.read_text(errors="ignore"), ""
+
+
+def all_events(force):
+    now = datetime.now(LOCAL)
+    lo, hi = now - timedelta(days=31), now + timedelta(days=62)
+    res, errors = [], []
+    for cal in load(SUBS, []):
+        text, err = fetch(cal, force)
+        if err:
+            errors.append({"cal": cal.get("name", ""), "error": err})
+        if text:
+            res += from_ics(text, cal, lo, hi)
+    for ev in load(OWN, []):
+        ev = dict(ev, own=True, cal=ev.get("cal") or "own")
+        res.append(ev)
+    res.sort(key=lambda e: e["start"])
+    return out({"ok": True, "events": res, "errors": errors, "calendars": load(SUBS, [])})
+
+
+def main():
+    a = sys.argv[1:]
+    c = a[0] if a else "events"
+    if c == "events":
+        return all_events("--refresh" in a)
+    if c == "add" and len(a) > 1:
+        ev = json.loads(a[1])
+        start = datetime.fromisoformat(ev["start"])
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=LOCAL)
+        end = datetime.fromisoformat(ev["end"]) if ev.get("end") else start + timedelta(hours=1)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=LOCAL)
+        m = LINK.search(ev.get("where", "") + " " + ev.get("link", ""))
+        own = load(OWN, [])
+        own.append({"id": "own-" + uuid.uuid4().hex[:10], "title": ev.get("title") or "—", "start": start.isoformat(), "end": end.isoformat(),
+                    "allDay": bool(ev.get("allDay")), "where": ev.get("where", ""), "link": ev.get("link") or (m.group(0) if m else "")})
+        OWN.parent.mkdir(parents=True, exist_ok=True)
+        OWN.write_text(json.dumps(own, ensure_ascii=False, indent=1))
+        return out({"ok": True})
+    if c == "remove" and len(a) > 1:
+        own = [e for e in load(OWN, []) if e.get("id") != a[1]]
+        OWN.write_text(json.dumps(own, ensure_ascii=False, indent=1))
+        return out({"ok": True})
+    print(__doc__, file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

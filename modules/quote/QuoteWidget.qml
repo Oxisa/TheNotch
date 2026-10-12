@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // The desktop quote's card in Settings → Widgets: show, position, size,
 // background, move by hand, reset.
@@ -12,7 +13,7 @@ Column {
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
   readonly property color bgc: Color.background
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.desk
 
       SH.HubRow {
         title: page.mod ? page.mod.t("show") : ""; fg: page.fg; fontFamily: page.ff

@@ -5,9 +5,10 @@ import Quickshell.Io
 import Quickshell.Widgets
 import qs.Commons
 import "../.."
-import "../../../osia.soundhub" as SH
-import "../../../osia.soundhub/I18n.js" as HubI18n
+import "../../vendor/soundhub" as SH
+import "../../vendor/soundhub/I18n.js" as HubI18n
 import "../../DeskStyle.js" as DS
+import "../../fonts"
 
 // SoundHub as a TheNotch dashboard. This object is the "host" the SoundHub
 // pages expect (the bar panel plays the same role): colours, strings,
@@ -27,20 +28,20 @@ NotchModule {
                   : "Now playing, mixer, equalizer and focus sounds"
   sectionOrder: 10
   settingsSection: "sound"
-  topTab: true
+  noIcon: true                                  // no tab: Centre's sliders open it
 
   // ------------------------------------------------------- host: look
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
   readonly property color bgc: Color.background
   readonly property color urgent: Color.urgent
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.ui
 
   // --------------------------------------------------- host: settings
   function opt(key, fallback) { return notch ? notch.moduleOpt("soundhub", key, fallback) : fallback }
   function setting(key, fallback) { return opt(key, fallback) }        // MiniPlayer's name for it
   function persist(values) { if (notch) notch.modulePersist("soundhub", values) }
-  readonly property string lang: String(opt("lang", "en") || "en")
+  readonly property string lang: notch ? notch.lang : "en"          // the shell's one language
   function t(key, args) { return HubI18n.t(lang, key, args) }
 
   // First run: start from the bar widget's SoundHub settings.
@@ -79,7 +80,7 @@ NotchModule {
   readonly property bool playing: hasTrack && !!player.isPlaying
 
   // --------------------------------------------- host: EQ backend + tabs
-  readonly property string eqBin: decodeURIComponent(Qt.resolvedUrl("../../../osia.soundhub/bin/soundhub-eq").toString().replace(/^file:\/\//, ""))
+  readonly property string eqBin: decodeURIComponent(Qt.resolvedUrl("../../vendor/soundhub/bin/soundhub-eq").toString().replace(/^file:\/\//, ""))
   property var eq: ({ enabled: false, bands: [0, 0, 0, 0, 0, 0], autoPreamp: true, preamp: 0,
                       effectivePreamp: 0, preset: "flat", target: "" })
   property bool eqBusy: false
@@ -114,14 +115,16 @@ NotchModule {
 
   property int tab: 0
   property string eqScope: "global"
-  function openEqFor(mixId) { eqScope = mixId || "global"; tab = 2 }
+  // the mixer opens a mix's own EQ here, in the notch (tab 1 since the mixer moved to Settings)
+  function openEqFor(mixId) { eqScope = mixId || "global"; tab = 1; if (notch) { notch.settingsOpen = false; notch.openModule("soundhub") } }
   property bool wide: false
   readonly property bool opened: notch !== null && notch.expanded && notch.current === mod
 
-  pageWidth: tab === 0 ? (wide ? 840 : 400) : tab === 1 ? 920 : tab === 2 ? 500 : tab === 4 ? 520 : 440
+  // tabs: 0 now playing, 1 EQ, 2 focus, 3 microphone
+  pageWidth: tab === 0 ? (wide ? 840 : 400) : tab === 1 ? 500 : tab === 3 ? 520 : 440
   page: Component { SoundHubPage { host: mod } }
   // SoundHub's settings live in the settings window, not in a tab
-  settingsPage: Component { SH.SettingsPage { host: mod; showDesk: false } }
+  settingsPage: Component { SH.SettingsPage { host: mod; showDesk: false; showLang: false } }
 
   // ------------------------------------------- widget: now playing card
   // TheNotch draws it (settings in modules.soundhub) and tells the bar's
@@ -148,8 +151,7 @@ NotchModule {
   }
   readonly property var micSource: Pipewire.defaultAudioSource
   PwObjectTracker { objects: [mod.micSource] }
-  ear: active && opt("micIndicator", true) !== false && micUsers.length
-       ? (micSource && micSource.audio && micSource.audio.muted ? "\u{f036d}" : "\u{f036c}") : ""
+  // (who uses the mic shows as Privacy's dots in the notch)
 
   // a name a child's own `mod` property can't shadow
   readonly property var soundModule: mod
@@ -212,6 +214,7 @@ NotchModule {
       border.color: DS.border(deskStyle, mod.fg)
       SH.MiniPlayer {
         id: mini
+        ff: Fonts.desk
         opacity: hasTrack && !parent.deskVertical ? 1 : 0
         x: Style.space(14); y: Style.space(14)
         width: parent.width - Style.space(28)
@@ -293,10 +296,23 @@ NotchModule {
     marker.setText(JSON.stringify({ nowplaying: false }))     // let the bar's SoundHub draw it again
   }
 
+  // iOS-style: a small rounded cover on the left, bars that dance to the
+  // music on the right, tinted with the cover's own colour
+  ColorQuantizer {
+    id: artTone
+    source: mod.player && mod.player.trackArtUrl ? mod.player.trackArtUrl : ""
+    depth: 2
+    rescaleSize: 48
+  }
+  readonly property color artColor: {
+    var cs = artTone.colors, best = null, bs = -1
+    for (var i = 0; i < cs.length; i++) { var c = cs[i], sc = c.hslSaturation * 0.7 + c.hslLightness * 0.3; if (c.hslLightness > 0.3 && sc > bs) { bs = sc; best = c } }
+    return best ? Qt.hsla(best.hslHue, Math.max(best.hslSaturation, 0.45), Math.min(Math.max(best.hslLightness, 0.6), 0.75), 1) : mod.accent
+  }
   liveLeft: Component {
     ClippingRectangle {
-      width: Style.space(24); height: width
-      radius: width / 2
+      width: Style.space(22); height: width
+      radius: Style.space(6)
       color: SH.HubStyle.tint(mod.fg, 0.15)
       Image {
         anchors.fill: parent
@@ -304,30 +320,39 @@ NotchModule {
         fillMode: Image.PreserveAspectCrop
         sourceSize: Qt.size(64, 64)
       }
-      RotationAnimator on rotation {
-        from: 0; to: 360; duration: 8000; loops: Animation.Infinite
-        running: mod.playing
+      Text {
+        anchors.centerIn: parent
+        visible: !(mod.player && mod.player.trackArtUrl)
+        text: "\u{f075a}"; color: mod.artColor
+        font.family: Fonts.ui; font.pixelSize: Style.font.caption
       }
     }
   }
   liveRight: Component {
-    // on a left/right edge the notch is vertical: turn the spectrum with it
+    // six bars from the middle out; turned with a vertical notch
     Item {
+      id: bars
       readonly property bool vert: mod.notch !== null && mod.notch.vertical
-      width: vert ? Style.space(18) : Style.space(44)
-      height: vert ? Style.space(44) : Style.space(18)
-      SH.Spectrum {
-      anchors.centerIn: parent
-      rotation: parent.vert ? (mod.notch.edge === "left" ? 90 : -90) : 0
-      width: Style.space(44); height: Style.space(18)
-      levels: mod.cava && mod.cava.levels ? mod.cava.levels.slice(0, 10) : []
-      style: "bars"
-      mode: "mirror"
-      accent: mod.accent
-      color: mod.accent
-      fg: mod.fg
-      gap: 2
-      minLevel: 0.08
+      width: vert ? Style.space(18) : Style.space(30)
+      height: vert ? Style.space(30) : Style.space(18)
+      readonly property var lv: mod.cava && mod.cava.levels ? mod.cava.levels : []
+      Row {
+        anchors.centerIn: parent
+        rotation: bars.vert ? 90 : 0
+        spacing: Style.space(2.5)
+        Repeater {
+          model: 6
+          delegate: Rectangle {
+            required property int index
+            // pair cava's bands so the middle bars carry the bass
+            readonly property real v: { var k = [4, 2, 0, 1, 3, 5][index]; var a = bars.lv[k * 2] || 0, b = bars.lv[k * 2 + 1] || 0; return mod.playing ? Math.max(a, b) : 0 }
+            anchors.verticalCenter: parent.verticalCenter
+            width: Style.space(3); radius: width / 2
+            height: Math.max(Style.space(4), Style.space(18) * Math.min(1, 0.15 + v * 0.95))
+            color: mod.artColor
+            Behavior on height { NumberAnimation { duration: 90 } }
+          }
+        }
       }
     }
   }

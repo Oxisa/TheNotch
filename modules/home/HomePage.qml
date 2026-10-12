@@ -2,7 +2,8 @@ import QtQuick
 import Quickshell
 import Quickshell.Widgets
 import qs.Commons
-import "../../../osia.soundhub" as SH
+import "../../vendor/soundhub" as SH
+import "../../fonts"
 
 // Home's page, laid out like caelestia's dashboard:
 //   [ weather ][ profile           ][ player ]
@@ -13,7 +14,7 @@ Item {
   readonly property color fg: Color.foreground
   readonly property color accent: Color.accent
   readonly property color bgc: Color.background
-  readonly property string ff: Style.font.family
+  readonly property string ff: Fonts.ui
   function t(a, b) { return mod ? mod.t(a, b) : b }
   readonly property var weather: mod ? mod.moduleById("weather") : null
   readonly property var sys: mod ? mod.moduleById("system") : null
@@ -138,7 +139,12 @@ Item {
   Card {
     x: page.dateW + page.gap; y: page.topH + page.gap
     width: page.leftW - page.dateW - page.resW - page.gap * 2; height: page.lowH
-    Calendar { anchors.fill: parent; anchors.margins: Style.space(14); ru: page.mod ? page.mod.ru : true }
+    Calendar {
+      anchors.fill: parent; anchors.margins: Style.space(14)
+      ru: page.mod ? page.mod.ru : true
+      source: page.mod ? (page.mod.moduleById("calendar") && page.mod.moduleById("calendar").active ? page.mod.moduleById("calendar") : null) : null
+      onPick: function(day) { source.picked = day; page.mod.notch.openModule("calendar") }
+    }
   }
 
   // ------------------------------------------------------------ resources

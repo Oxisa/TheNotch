@@ -15,8 +15,8 @@ NotchModule {
   description: t("Аватар и имя", "Picture and name")
   inRail: false
   core: true
-  settingsSection: "account"
-  sectionOrder: 1
+  settingsSection: "system"
+  sectionOrder: 10
   settingsPage: Component { AccountSettings { mod: ac } }
   function opt(key, fallback) { return notch ? notch.moduleOpt("account", key, fallback) : fallback }
   function persist(values) { if (notch) notch.modulePersist("account", values) }

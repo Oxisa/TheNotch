@@ -5,11 +5,13 @@ import Quickshell.Services.Pipewire
 import qs.Commons
 import "../.."
 import "../home"
+import "../../fonts"
 
-// Centre: the tab for what you switch and track — notifications on the
-// left; on the right quick toggles (Bluetooth with the headphones' battery,
-// night light, do not disturb, microphone, stay awake, screenshot, screen
-// recording, recorder) and a timer / stopwatch. Quick toggles after the
+// Centre: the control centre — network and Bluetooth tiles with their short
+// lists, switches (do not disturb, night light, stay awake, headphones,
+// tunnel), sliders for volume, microphone and brightness with a device
+// picker, the track, tools with a timer / stopwatch / pomodoro, and the
+// notifications folded at the bottom (CenterPage). Quick toggles after the
 // Control Center plugin (404Prabhat, MIT) and caelestia's utilities — ideas
 // only, no code taken.
 NotchModule {
@@ -18,9 +20,9 @@ NotchModule {
   function t(a, b) { return ru ? a : b }
   title: t("Центр", "Centre")
   icon: "\u{f0a1a}"
-  description: t("Уведомления, быстрые переключатели и таймер", "Notifications, quick toggles and a timer")
+  description: t("Пункт управления: сеть, Bluetooth, звук, яркость, инструменты, уведомления", "Control centre: network, Bluetooth, sound, brightness, tools, notifications")
   topTab: true
-  pageWidth: 820
+  pageWidth: 780
   page: Component { CenterPage { mod: hm } }
   function opt(key, fallback) { return notch ? notch.moduleOpt("center", key, fallback) : fallback }
   function persist(values) { if (notch) notch.modulePersist("center", values) }
@@ -71,7 +73,9 @@ NotchModule {
     if (notif) out.push({ id: "dnd", icon: notif.dnd ? "\u{f009b}" : "\u{f009a}", label: t("Не беспокоить", "Do not disturb"), on: notif.dnd, sub: notif.dnd ? t("вкл", "on") : t("выкл", "off") })
     out.push({ id: "mic", icon: micMuted ? "\u{f036d}" : "\u{f036c}", label: t("Микрофон", "Microphone"), on: !micMuted, sub: micMuted ? t("выключен", "muted") : t("включён", "live") })
     out.push({ id: "awake", icon: "\u{f0176}", label: t("Не засыпать", "Stay awake"), on: !!sys.awake, sub: sys.awake ? t("вкл", "on") : t("выкл", "off") })
-    out.push({ id: "shot", icon: "\u{f0100}", label: t("Скриншот", "Screenshot"), on: false, sub: t("область", "region") })
+    var sm = moduleById("screenshot")
+    out.push({ id: "shot", icon: "\u{f0100}", label: t("Скриншот", "Screenshot"), on: false,
+               sub: sm ? ({ region: t("область", "region"), windows: t("окно", "window"), fullscreen: t("весь экран", "screen"), smart: t("умный", "smart") }[sm.mode] || "") + (sm.delay ? " · " + sm.delay + t(" с", " s") : "") : t("область", "region") })
     var rec = moduleById("recorder")
     if (rec && rec.active) out.push({ id: "dictaphone", icon: "\u{f036c}", label: t("Диктофон", "Recorder"), on: rec.recording,
                                       sub: rec.recording ? rec.elapsed + t(" — стоп", " — stop") : t("записать", "record") })
@@ -87,7 +91,7 @@ NotchModule {
       case "dnd": notif.setDnd(!notif.dnd); break
       case "mic": if (source && source.audio) source.audio.muted = !source.audio.muted; break
       case "awake": run(["omarchy", "toggle", "idle"]); break
-      case "shot": notch.expanded = false; Quickshell.execDetached(["bash", "-c", "sleep 0.4; omarchy-capture-screenshot"]); break
+      case "shot": { var ss = moduleById("screenshot"); if (ss && ss.active) ss.shoot(); else { notch.expanded = false; Quickshell.execDetached(["bash", "-c", "sleep 0.4; omarchy-capture-screenshot"]) } } break
       case "dictaphone": moduleById("recorder").toggleRecording(); break
       case "rec": notch.expanded = false; Quickshell.execDetached(["bash", "-c", "sleep 0.4; omarchy-capture-screenrecording" + (sys.rec ? " --stop-recording" : "")]); after.restart(); break
     }
@@ -106,7 +110,7 @@ NotchModule {
   }
 
   // ---------------------------------------------------- timer, stopwatch
-  property string clockMode: "timer"            // timer | stopwatch
+  property string clockMode: "timer"            // timer | stopwatch | pomodoro
   property real timerTotal: 5 * 60000
   property real timerEnd: 0                     // ms since epoch while running
   property real timerLeft: timerTotal           // while paused
@@ -141,15 +145,69 @@ NotchModule {
       Quickshell.execDetached(["bash", "-c", "pw-play /usr/share/sounds/freedesktop/stereo/complete.oga 2>/dev/null || true"])
     }
   }
+  // ------------------------------------------------------------ pomodoro
+  // Work, a short break, again; every Nth break a long one. On a break the
+  // screen dims ("take a break", skippable) and the Focus sounds stop; they
+  // start again with the next work round. After Omadoro (klaudworks) and
+  // Pomodoro (rokan00) — the idea, not their code.
+  readonly property var pomo: Object.assign({ work: 25, short: 5, long: 15, cycles: 4, overlay: true, sounds: false, autoNext: true }, opt("pomodoro", ({})))
+  function setPomo(v) { persist({ pomodoro: Object.assign({}, pomo, v) }) }
+  property string phase: "idle"                 // idle | work | short | long
+  property int done: 0                          // work rounds finished
+  property real phaseEnd: 0
+  property real phaseLeft: 0
+  readonly property bool pomoRunning: phaseEnd > 0
+  readonly property real pomoRemaining: pomoRunning ? Math.max(0, phaseEnd - nowMs) : phaseLeft
+  readonly property bool onBreak: phase === "short" || phase === "long"
+  Timer { interval: 250; repeat: true; running: hm.pomoRunning; onTriggered: { hm.nowMs = Date.now(); hm.checkPomo() } }
+  function minutesOf(ph) { return ph === "work" ? pomo.work : ph === "short" ? pomo.short : pomo.long }
+  function startPhase(ph) {
+    phase = ph; nowMs = Date.now()
+    phaseEnd = nowMs + minutesOf(ph) * 60000
+    var snd = moduleById("soundhub")
+    if (pomo.sounds && snd && snd.ambient) { if (ph === "work" && snd.ambient.selectedCount() > 0) snd.ambient.playAll(); else if (ph !== "work") snd.ambient.stopAll() }
+  }
+  function pomoStartPause() {
+    nowMs = Date.now()
+    if (phase === "idle") { startPhase("work"); return }
+    if (pomoRunning) { phaseLeft = pomoRemaining; phaseEnd = 0 }
+    else phaseEnd = nowMs + (phaseLeft > 0 ? phaseLeft : minutesOf(phase) * 60000)
+  }
+  function pomoReset() {
+    phase = "idle"; phaseEnd = 0; phaseLeft = 0; done = 0
+    var snd = moduleById("soundhub"); if (pomo.sounds && snd && snd.ambient) snd.ambient.stopAll()
+  }
+  function skipBreak() { if (onBreak) startPhase("work") }
+  function checkPomo() {
+    if (!pomoRunning || pomoRemaining > 0) return
+    var next
+    if (phase === "work") { done += 1; next = done % pomo.cycles === 0 ? "long" : "short" }
+    else next = "work"
+    if (notch) notch.flash({ key: "pomodoro", big: true, icon: next === "work" ? "\u{f09d1}" : "\u{f0176}",
+                             title: next === "work" ? t("Перерыв окончен", "Break's over") : t("Время отдохнуть", "Time for a break"),
+                             message: next === "work" ? t("Следующий круг работы", "The next work round") : t("Кругов сделано: ", "Rounds done: ") + done, ms: 8000 })
+    Quickshell.execDetached(["bash", "-c", "pw-play /usr/share/sounds/freedesktop/stereo/complete.oga 2>/dev/null || true"])
+    if (pomo.autoNext) startPhase(next)
+    else { phase = next; phaseEnd = 0; phaseLeft = minutesOf(next) * 60000 }
+  }
+  function phaseName(ph) { return { idle: t("Готов", "Ready"), work: t("Работа", "Work"), short: t("Перерыв", "Break"), long: t("Длинный перерыв", "Long break") }[ph] }
+
+  // the break screen: dims every monitor, a skip button
+  Variants {
+    model: hm.active && hm.onBreak && hm.pomoRunning && hm.pomo.overlay ? Quickshell.screens : []
+    delegate: BreakOverlay { required property var modelData; screen: modelData; mod: hm }
+  }
+
   // a running timer shows in the collapsed notch
-  live: timerRunning || swRunning
+  live: timerRunning || swRunning || phase !== "idle"
   livePriority: 15
-  liveLeft: Component { Text { text: "\u{f051b}"; color: Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body + 2 } }
+  liveLeft: Component { Text { text: hm.phase === "work" ? "\u{f09d1}" : hm.onBreak ? "\u{f0176}" : "\u{f051b}"; color: Color.accent; font.family: Fonts.ui; font.pixelSize: Style.font.body + 2 } }
   liveRight: Component {
     Text {
-      text: hm.fmt(hm.timerRunning ? hm.remaining : hm.elapsed)
+      text: hm.phase !== "idle" && !hm.timerRunning && !hm.swRunning ? hm.fmt(hm.pomoRemaining) + (hm.pomoRunning ? "" : "  ⏸")
+            : hm.fmt(hm.timerRunning ? hm.remaining : hm.elapsed)
       color: Color.foreground
-      font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true
+      font.family: Fonts.ui; font.pixelSize: Style.font.body; font.bold: true
     }
   }
 }

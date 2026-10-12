@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# The phone over KDE Connect, through the kcd daemon (bethropolis/kcd).
+#   phonectl state           daemon on?, devices with battery when connected (JSON)
+#   phonectl start           start the kcd user service
+#   phonectl <kcd args…>     ping / findmyphone / share / clipboard / pair / unpair
+set -uo pipefail
+case "${1:-state}" in
+  state)
+    active=false; systemctl --user is-active --quiet kcd && active=true
+    devs=$(timeout 5 kcd devices --json 2>/dev/null || echo '[]')
+    [[ $devs == \[* ]] || devs='[]'
+    out='[]'
+    while IFS= read -r d; do
+      [[ -z $d ]] && continue
+      id=$(jq -r .id <<<"$d"); conn=$(jq -r .connected <<<"$d"); bat='null'
+      if [[ $conn == true ]]; then b=$(timeout 4 kcd battery "$id" --json 2>/dev/null); [[ $b == \{* ]] && bat=$b; fi
+      out=$(jq -c --argjson d "$d" --argjson b "$bat" '. + [$d + {battery: $b}]' <<<"$out")
+    done < <(jq -c '.[]' <<<"$devs")
+    jq -cn --argjson a $active --argjson d "$out" '{ok: true, daemon: $a, devices: $d}' ;;
+  start) systemctl --user enable --now kcd >/dev/null 2>&1 && echo '{"ok":true}' || echo '{"ok":false,"error":"could not start kcd"}' ;;
+  ping|findmyphone|share|clipboard|pair|unpair)
+    if timeout 20 kcd "$@" >/dev/null 2>&1; then echo '{"ok":true}'; else echo '{"ok":false,"error":"the phone did not answer"}'; fi ;;
+esac

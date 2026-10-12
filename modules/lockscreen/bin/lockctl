@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Lock screen for TheNotch: which lock plugin draws it.
+#   lockctl state        the three choices: installed / enabled
+#   lockctl use ID       make ID the lock screen (only one can be on)
+#   lockctl install ID   add it from git, then use it
+#   lockctl preview      show the current lock screen without locking
+#   lockctl explore      Lock Designs' design picker
+set -uo pipefail
+ids=(omarchy.lock io.github.smoothpixels.lock-designs io.github.the4rchangel.hackery-lock)
+declare -A url=([io.github.smoothpixels.lock-designs]=https://github.com/SmoothPixels/lock-designs.git
+                [io.github.the4rchangel.hackery-lock]=https://github.com/the4rchangel/omarchy-hackery-lock.git)
+declare -A img=([io.github.smoothpixels.lock-designs]=12-smoothpixels-lock-designs
+                [io.github.the4rchangel.hackery-lock]=12-the4rchangel-omarchy-hackery-lock)
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/thenotch/lock"
+use() {
+  omarchy plugin enable "$1" >/dev/null 2>&1 || return 1
+  # every other lock plugin off: the stock one and its clones
+  omarchy plugin list --json 2>/dev/null | jq -r --arg id "$1" '.[] | select(.enabled and .id != $id and (.id == "omarchy.lock" or .clonedFrom == "omarchy.lock")) | .id' |
+    while read -r o; do omarchy plugin disable "$o" >/dev/null 2>&1; done
+  (sleep 0.5; omarchy restart shell >/dev/null 2>&1) &
+  echo '{"ok":true}'
+}
+case "${1:-state}" in
+  state)
+    mkdir -p "$cache"
+    list=$(omarchy plugin list --json 2>/dev/null)
+    for id in "${ids[@]}"; do
+      p=""; if [[ -n ${img[$id]:-} ]]; then
+        p="$cache/${img[$id]}.webp"
+        [[ -s $p ]] || curl -fsSL -m 20 -o "$p" "https://plugins.omarchy.org/assets/img/plugins/${img[$id]}-detail.webp" 2>/dev/null || p=""
+      fi
+      jq -c --arg id "$id" --arg p "$p" '([.[] | select(.id == $id)][0]) as $x | {id: $id, installed: ($x != null), enabled: ($x.enabled // false), preview: $p}' <<<"$list"
+    done | jq -sc '{ok: true, locks: .}'
+    ;;
+  use) use "$2" || echo '{"ok":false,"error":"could not enable"}' ;;
+  install)
+    u=${url[$2]:-}; [[ -n $u ]] || { echo '{"ok":false,"error":"unknown"}'; exit 1; }
+    omarchy plugin add "$u" --yes >/dev/null 2>&1 || { echo '{"ok":false,"error":"could not download"}'; exit 1; }
+    use "$2" ;;
+  preview) omarchy-shell lock preview >/dev/null 2>&1; echo '{"ok":true}' ;;
+  explore) omarchy-shell lock explore >/dev/null 2>&1; echo '{"ok":true}' ;;
+esac

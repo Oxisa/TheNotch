@@ -4,6 +4,7 @@ import Quickshell.Io
 import Quickshell.Widgets
 import qs.Commons
 import "DeskStyle.js" as DS
+import "fonts"
 
 // Your own desktop widget, made in the layout editor:
 //   text     a template — {time} {date} {day} {user} {host} {weather} {temp}
@@ -24,8 +25,8 @@ Rectangle {
   readonly property var cfg: def && def.cfg ? def.cfg : ({})
   readonly property color fg: DS.fg(deskStyle, Color.foreground)
   readonly property color accent: DS.accent(deskStyle, Color.accent)
-  readonly property string ff: cfg.font === "gothic" ? gothic.name : cfg.font === "serif" ? "Noto Serif" : Style.font.family
-  FontLoader { id: gothic; source: Qt.resolvedUrl("../osia.dailyquote/fonts/UnifrakturMaguntia-Book.ttf") }
+  readonly property string ff: cfg.font === "gothic" ? gothic.name : cfg.font === "serif" ? "Noto Serif" : Fonts.desk
+  FontLoader { id: gothic; source: Qt.resolvedUrl("vendor/dailyquote/fonts/UnifrakturMaguntia-Book.ttf") }
 
   readonly property real pad: type === "image" ? Style.space(8) : Style.space(18)
   width: Math.max(Style.space(60), body.width + pad * 2)
@@ -92,7 +93,7 @@ Rectangle {
       radius: Number(cw.cfg.radius || 0)
       color: "transparent"
       Image { id: img; anchors.fill: parent; source: cw.cfg.path ? "file://" + cw.cfg.path : ""; fillMode: Image.PreserveAspectCrop; asynchronous: true; sourceSize.width: 800 }
-      Text { visible: !cw.cfg.path; anchors.centerIn: parent; text: "\u{f02e9}"; color: cw.fg; font.family: Style.font.family; font.pixelSize: Style.space(36) }
+      Text { visible: !cw.cfg.path; anchors.centerIn: parent; text: "\u{f02e9}"; color: cw.fg; font.family: Fonts.desk; font.pixelSize: Style.space(36) }
     }
   }
 }
