@@ -81,12 +81,12 @@ NotchModule {
   // or one is full screen; widgets there fade out (WidgetWindow asks).
   readonly property bool hideCovered: active && opt("hideCovered", true) !== false
   property var covered: ({})
-  Timer {
-    interval: 1200; repeat: true; triggeredOnStart: true; running: wl.hideCovered
-    onTriggered: { Hyprland.refreshToplevels(); Hyprland.refreshMonitors(); wl.measure() }
-  }
-  Connections { target: Hyprland; enabled: wl.hideCovered; function onRawEvent(ev) { if (/^(openwindow|closewindow|movewindow|workspace|fullscreen|changefloatingmode)/.test(ev.name)) after.restart() } }
-  Timer { id: after; interval: 250; onTriggered: { Hyprland.refreshToplevels(); wl.measure() } }
+  // Event-driven: Hyprland says when windows change; reading all windows on a
+  // timer leaked memory (≈11 MB a minute in Quickshell's IPC objects).
+  // A slow check covers what has no event (a floating window resized).
+  Timer { interval: 30000; repeat: true; triggeredOnStart: true; running: wl.hideCovered; onTriggered: after.restart() }
+  Connections { target: Hyprland; enabled: wl.hideCovered; function onRawEvent(ev) { if (/^(openwindow|closewindow|movewindow|workspace|focusedmon|fullscreen|changefloatingmode|monitoradded|monitorremoved)/.test(ev.name)) after.restart() } }
+  Timer { id: after; interval: 300; onTriggered: { Hyprland.refreshToplevels(); wl.measure() } }
   function measure() {
     var out = {}, ms = Hyprland.monitors.values
     for (var i = 0; i < ms.length; i++) {

@@ -79,13 +79,6 @@ Column {
       }
     }
   }
-  Row {
-    visible: false
-    spacing: Style.space(8)
-    Text { anchors.verticalCenter: parent.verticalCenter; text: page.t("Видео-обоям нужен плагин Live Wallpaper", "Video wallpapers need the Live Wallpaper plugin"); color: Color.urgent; font.family: page.ff; font.pixelSize: Style.font.caption }
-    SH.HubChip { label: page.t("Плагины Omarchy", "Omarchy plugins"); fg: page.fg; accent: page.accent; fontFamily: page.ff; onClicked: page.mod.notch.openSettings("plugins") }
-  }
-
   FolderListModel {
     id: files
     folder: "file://" + (tabs.current === "theme" ? (page.st.themeDir || "") : page.folder)

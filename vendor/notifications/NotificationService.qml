@@ -467,10 +467,14 @@ Item {
     popupFileProc.running = true
   }
 
+  // TheNotch: the notch reads the files when they change — this says when
+  signal filesChanged()
+
   Process {
     id: popupFileProc
     running: false
     onExited: {
+      service.filesChanged()
       var done = service.runningPopupFileJobDone
       service.runningPopupFileJobDone = null
       if (done) {

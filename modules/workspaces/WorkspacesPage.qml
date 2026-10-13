@@ -16,8 +16,13 @@ Item {
   readonly property color accent: Color.accent
   readonly property string ff: Fonts.ui
   function t(a, b) { return mod ? mod.t(a, b) : b }
-  Component.onCompleted: if (mod) mod.watchers += 1
-  Component.onDestruction: if (mod) mod.watchers -= 1
+  // watch windows only while this tab is really on screen (pages are kept)
+  readonly property bool shown: visible && !!(mod && mod.notch && mod.notch.expanded)
+  property bool counted: false
+  function count(on) { if (!mod || on === counted) return; counted = on; mod.watchers += on ? 1 : -1 }
+  onShownChanged: count(shown)
+  Component.onCompleted: count(shown)
+  Component.onDestruction: count(false)
 
   // ---- the layout in layout (logical) units, scaled to the page
   readonly property var mons: mod ? mod.monitors : []
@@ -106,7 +111,7 @@ Item {
         y: page.headH
         width: parent.width
         mod: page.mod; ws: mon.cur; monitor: mon.modelData
-        live: page.visible
+        live: page.shown
         showLabel: false
       }
 
@@ -120,7 +125,7 @@ Item {
             required property var modelData
             width: Math.round((page.stripH - Style.space(22)) * page.lw(mon.modelData) / page.lh(mon.modelData))
             mod: page.mod; ws: modelData; monitor: mon.modelData
-            live: page.visible
+            live: page.shown
           }
         }
         Rectangle {

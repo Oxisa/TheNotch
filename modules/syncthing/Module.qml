@@ -16,13 +16,13 @@ NotchModule {
   icon: "\u{f04e6}"
   description: t("Синхронизация папок между устройствами", "Folders kept in sync between devices")
   inRail: false
-  settingsSection: "apps"
-  sectionOrder: 30
+  settingsSection: "tools"
+  sectionOrder: 2
   settingsPage: Component { SyncthingSettings { mod: sy } }
   readonly property string bin: decodeURIComponent(Qt.resolvedUrl("bin/syncctl").toString().replace(/^file:\/\//, ""))
   property var st: ({})
   Process { id: proc; command: [sy.bin]; stdout: StdioCollector { waitForEnd: true; onStreamFinished: { try { sy.st = JSON.parse(text) } catch (e) {} } } }
-  readonly property bool watching: active && notch !== null && notch.settingsOpen && notch.settingsSection === "apps"
+  readonly property bool watching: active && notch !== null && notch.settingsOpen && notch.settingsSection === "tools"
   Timer { interval: 5000; repeat: true; triggeredOnStart: true; running: sy.watching; onTriggered: if (!proc.running) proc.running = true }
   function start() { Quickshell.execDetached(["systemctl", "--user", "enable", "--now", "syncthing"]) }
 }

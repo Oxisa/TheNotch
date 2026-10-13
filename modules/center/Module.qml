@@ -8,9 +8,9 @@ import "../home"
 import "../../fonts"
 
 // Centre: the control centre — network and Bluetooth tiles with their short
-// lists, switches (do not disturb, night light, stay awake, headphones,
-// tunnel), sliders for volume, microphone and brightness with a device
-// picker, the track, tools with a timer / stopwatch / pomodoro, and the
+// lists, switches (do not disturb, night light, stay awake, headphones),
+// sliders for volume, microphone and brightness with a device
+// picker, tools with a timer / stopwatch / pomodoro, and the
 // notifications folded at the bottom (CenterPage). Quick toggles after the
 // Control Center plugin (404Prabhat, MIT) and caelestia's utilities — ideas
 // only, no code taken.
@@ -34,19 +34,14 @@ NotchModule {
   Process {
     id: status
     command: ["bash", "-c",
-      "bt=0; omarchy-bluetooth-power is-on >/dev/null 2>&1 && bt=1; " +
-      "devs=$(bluetoothctl devices Connected 2>/dev/null | while read -r _ mac name; do " +
-      "  b=$(bluetoothctl info \"$mac\" 2>/dev/null | sed -n 's/.*Battery Percentage: .*(\\([0-9]*\\)).*/\\1/p'); " +
-      "  printf '{\"name\":\"%s\",\"battery\":%s},' \"${name//\\\"/}\" \"${b:-null}\"; done); " +
       "night=$(omarchy toggle nightlight --status 2>/dev/null | grep -q '\"enabled\":true' && echo 1 || echo 0); " +
       "awake=0; [ -f \"$HOME/.local/state/omarchy/indicators/stay-awake\" ] && awake=1; " +
       "rec=0; pgrep -f '^gpu-screen-recorder' >/dev/null && rec=1; " +
-      "wifi=; nmcli -t -f TYPE device 2>/dev/null | grep -qx wifi && wifi=$(nmcli -t radio wifi 2>/dev/null); " +
-      "printf '{\"bt\":%s,\"devices\":[%s],\"night\":%s,\"awake\":%s,\"rec\":%s,\"wifi\":\"%s\"}\\n' $bt \"${devs%,}\" $night $awake $rec \"$wifi\""]
+      "printf '{\"night\":%s,\"awake\":%s,\"rec\":%s}\\n' $night $awake $rec"]
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: { try { hm.sys = JSON.parse(text) } catch (e) {} } }
   }
   function refresh() { if (!status.running) status.running = true }
-  Timer { interval: 3000; repeat: true; triggeredOnStart: true; running: hm.active && hm.notch !== null && (hm.notch.expanded || hm.headphoneWatch); onTriggered: hm.refresh() }
+  Timer { interval: 6000; repeat: true; triggeredOnStart: true; running: hm.active && hm.notch !== null && hm.notch.expanded; onTriggered: hm.refresh() }
   function run(cmd) { Quickshell.execDetached(cmd); after.restart() }
   Timer { id: after; interval: 700; onTriggered: hm.refresh() }
 
@@ -54,17 +49,24 @@ NotchModule {
   PwObjectTracker { objects: [hm.source] }
   readonly property bool micMuted: source && source.audio ? source.audio.muted : false
   readonly property var notif: moduleById("notifications")
+  // Bluetooth comes from the Devices module (one bluetoothctl reader, not two)
+  readonly property var dv: moduleById("devices")
+  // Wi-Fi, live from the Network module (NetworkManager): "enabled" | "disabled" | "" (no Wi-Fi card)
+  readonly property var nwm: moduleById("network")
+  readonly property string wifiState: nwm && nwm.wifiDev ? (nwm.wifiOn ? "enabled" : "disabled") : ""
+  readonly property bool btOn: !!(dv && dv.st && dv.st.bt && dv.st.bt.powered)
+  readonly property var btConnected: dv && dv.st && dv.st.devices ? dv.st.devices.filter(function(x) { return x.connected }).map(function(x) { return { name: x.name, battery: x.battery === undefined ? null : x.battery } }) : []
   readonly property var headphones: {
-    var d = sys.devices || []
+    var d = btConnected
     for (var i = 0; i < d.length; i++) if (d[i].battery !== null) return d[i]
     return d.length ? d[0] : null
   }
   readonly property var toggles: {
     var out = []
-    if (sys.wifi === "enabled" || sys.wifi === "disabled")
-      out.push({ id: "wifi", icon: "\u{f05a9}", label: "Wi-Fi", on: sys.wifi === "enabled", sub: sys.wifi === "enabled" ? t("вкл", "on") : t("выкл", "off") })
-    out.push({ id: "bt", icon: sys.bt ? "\u{f00af}" : "\u{f00b2}", label: "Bluetooth", on: !!sys.bt,
-               sub: headphones ? headphones.name + (headphones.battery !== null ? " · " + headphones.battery + "%" : "") : (sys.bt ? t("вкл", "on") : t("выкл", "off")) })
+    if (wifiState === "enabled" || wifiState === "disabled")
+      out.push({ id: "wifi", icon: "\u{f05a9}", label: "Wi-Fi", on: wifiState === "enabled", sub: wifiState === "enabled" ? t("вкл", "on") : t("выкл", "off") })
+    out.push({ id: "bt", icon: btOn ? "\u{f00af}" : "\u{f00b2}", label: "Bluetooth", on: btOn,
+               sub: headphones ? headphones.name + (headphones.battery !== null ? " · " + headphones.battery + "%" : "") : (btOn ? t("вкл", "on") : t("выкл", "off")) })
     var hph = moduleById("headphones")
     if (hph && hph.active && hph.present)
       out.push({ id: "hp", icon: hph.modeIcon(hph.mode), label: hph.st.model || t("Наушники", "Headphones"), on: hph.mode !== "off",
@@ -84,8 +86,8 @@ NotchModule {
   }
   function toggle(id) {
     switch (id) {
-      case "wifi": run(["nmcli", "radio", "wifi", sys.wifi === "enabled" ? "off" : "on"]); break
-      case "bt": run(["omarchy-bluetooth-power", "toggle"]); break
+      case "wifi": if (nwm) nwm.setRadio(wifiState !== "enabled"); break
+      case "bt": if (dv && dv.adapter) dv.adapter.enabled = !dv.adapter.enabled; break
       case "hp": moduleById("headphones").cmd(["cycle"]); break
       case "night": run(["omarchy", "toggle", "nightlight"]); break
       case "dnd": notif.setDnd(!notif.dnd); break
@@ -100,7 +102,7 @@ NotchModule {
   // headphones' battery: an event once when it drops to 15 %
   readonly property bool headphoneWatch: opt("batteryEvent", true) === true
   property int lastWarned: -1
-  Timer { interval: 120000; repeat: true; running: hm.active && hm.headphoneWatch && !(hm.notch && hm.notch.expanded); onTriggered: hm.refresh() }
+  // (the battery arrives live from BlueZ through Devices — no polling)
   onHeadphonesChanged: {
     var h = headphones
     if (!h || h.battery === null || !notch) return

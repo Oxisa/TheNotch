@@ -31,6 +31,9 @@ Canvas {
   property bool showGuideRing: false
   property bool arcEmphasis: false
   property real arcEdgeFade: 0.05
+  // "minute" or "second": draw only that ring (TheNotch: each ring is its own
+  // canvas, painted once per tick and turned in between on the GPU)
+  property string only: ""
 
   renderStrategy: Canvas.Cooperative
   renderTarget: Canvas.FramebufferObject
@@ -114,7 +117,7 @@ Canvas {
     var lw = Math.max(1, canvas.chromeScale * 0.8)
     var guideAlpha = 0.14 * canvas.ringStrength * (canvas.arcEmphasis ? 2 : 1)
 
-    if (canvas.showGuideRing && canvas.fullRing) {
+    if (canvas.only !== "second" && canvas.showGuideRing && canvas.fullRing) {
       ctx.beginPath()
       ctx.strokeStyle = Theme.ink(canvas.ringColor, 0.07 * canvas.ringStrength)
       ctx.lineWidth = lw
@@ -122,7 +125,7 @@ Canvas {
       ctx.stroke()
     }
 
-    if (canvas.arcClip) {
+    if (canvas.only !== "second" && canvas.arcClip) {
       var guideFrom = Clock.normalizeAngle0(canvas.arcFrom)
       var guideTo = Clock.normalizeAngle0(canvas.arcTo)
       var arcLw = lw * (canvas.arcEmphasis ? 1.55 : 1)
@@ -141,8 +144,9 @@ Canvas {
       }
     }
 
-    canvas.drawDotRing(ctx, canvas.minuteRadius, canvas.minuteProgress, canvas.ringColor, canvas.minuteLabelColor)
-    if (canvas.showSeconds)
+    if (canvas.only !== "second")
+      canvas.drawDotRing(ctx, canvas.minuteRadius, canvas.minuteProgress, canvas.ringColor, canvas.minuteLabelColor)
+    if (canvas.showSeconds && canvas.only !== "minute")
       canvas.drawDotRing(ctx, canvas.secondRadius, canvas.secondProgress, canvas.secondRingColor, canvas.secondLabelColor)
   }
 }

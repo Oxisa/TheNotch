@@ -57,8 +57,12 @@ Item {
     return c
   }
   onSinkCountChanged: tapSoon.restart()
+  // the output changed (e.g. headphones picked): re-tap now, not at the next safety check
+  readonly property var defaultSink: Pipewire.defaultAudioSink
+  onDefaultSinkChanged: tapSoon.restart()
   Timer { id: tapSoon; interval: 600; onTriggered: root.tapNow() }
-  Timer { interval: 2000; repeat: true; running: root.active; onTriggered: root.tapNow() }
+  // a safety net only: sink changes already call tapSoon (every 2 s spawned python all day)
+  Timer { interval: 10000; repeat: true; running: root.active; onTriggered: root.tapNow() }
 
   function stop() {
     retry.stop()

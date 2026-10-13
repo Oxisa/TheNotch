@@ -22,10 +22,14 @@ Column {
   readonly property var nearby: (st.devices || []).filter(function(d) { return !d.paired })
   SettingsTabs {
     id: tabs
-    tabs: [{ id: "bt", label: "Bluetooth", icon: "\u{f00af}" }, { id: "bat", label: page.t("Батареи", "Batteries"), icon: "\u{f0079}" },
-           { id: "print", label: page.t("Принтеры", "Printers"), icon: "\u{f042a}" }, { id: "cam", label: page.t("Камеры", "Cameras"), icon: "\u{f05a0}" }]
+    // printers only once there is one (or you're adding one); batteries are
+    // the Batteries widget and cameras the Camera section
+    tabs: [{ id: "bt", label: "Bluetooth", icon: "\u{f00af}" }]
+          .concat(page.hasPrinters || page.addingPrinter ? [{ id: "print", label: page.t("Принтеры", "Printers"), icon: "\u{f042a}" }] : [])
   }
   readonly property string tab: tabs.current
+  readonly property bool hasPrinters: !!(st.printers && st.printers.list && st.printers.list.length)
+  property bool addingPrinter: false
 
 
   component Card: SH.HubCard {
@@ -151,36 +155,19 @@ Column {
       }
     }
   }
-
-  // ------------------------------------------------------- batteries
+  // no printer yet: the way in stays here (the Printers tab appears once one is added)
   Card {
-    visible: (page.tab === "bat") && ((page.st.batteries || []).length > 0)
-    SH.HubCaption { text: page.t("Заряд устройств", "Device batteries"); icon: "\u{f0079}"; fg: page.fg; fontFamily: page.ff }
-    Repeater {
-      model: page.st.batteries || []
-      delegate: Item {
-        required property var modelData
-        width: parent.width; height: Style.space(30)
-        Row {
-          anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(10)
-          Text { text: page.mod.glyph(modelData.kind); color: page.accent; font.family: page.ff; font.pixelSize: Style.font.body + 2 }
-          Text { text: modelData.name; color: page.fg; font.family: page.ff; font.pixelSize: Style.font.body }
-        }
-        Row {
-          anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(10)
-          Rectangle {
-            anchors.verticalCenter: parent.verticalCenter
-            width: Style.space(120); height: Style.space(6); radius: height / 2
-            color: SH.HubStyle.tint(page.fg, 0.10)
-            Rectangle { width: parent.width * modelData.percent / 100; height: parent.height; radius: height / 2; color: modelData.percent <= 15 ? Color.urgent : page.accent }
-          }
-          Text { width: Style.space(44); horizontalAlignment: Text.AlignRight; text: (modelData.charging ? "\u{f140b}" : "") + modelData.percent + "%"; color: page.fg; font.family: page.ff; font.pixelSize: Style.font.caption; font.bold: true }
-        }
-      }
+    visible: page.tab === "bt" && !page.hasPrinters
+    SH.HubRow {
+      width: parent.width
+      icon: "\u{f042a}"
+      title: page.t("Принтер", "Printer"); hint: page.t("Найти принтер в сети и подключить его", "Find a printer on the network and add it")
+      fg: page.fg; fontFamily: page.ff
+      SH.HubChip { icon: "\u{f0415}"; label: page.t("Подключить…", "Add…"); fg: page.fg; accent: page.accent; fontFamily: page.ff
+                   onClicked: { page.addingPrinter = true; tabs.current = "print"; page.mod.cmd(["printer", "discover"]) } }
     }
   }
+
 
   // -------------------------------------------------------- printers
   Card {
@@ -254,28 +241,4 @@ Column {
     }
   }
 
-  // --------------------------------------------------------- cameras
-  Card {
-    visible: page.tab === "cam"
-    SH.HubCaption { text: page.t("Камеры", "Cameras"); icon: "\u{f05a0}"; fg: page.fg; fontFamily: page.ff }
-    Text {
-      visible: (page.st.cameras || []).length === 0
-      text: page.t("Камер не найдено", "No cameras found")
-      color: Qt.darker(page.fg, 1.6); font.family: page.ff; font.pixelSize: Style.font.caption
-    }
-    Repeater {
-      model: page.st.cameras || []
-      delegate: SH.HubRow {
-        required property var modelData
-        title: modelData.name
-        hint: page.full ? modelData.devices.join(", ") : ""
-        fg: page.fg; fontFamily: page.ff
-        SH.HubChip {
-          icon: "\u{f05a0}"; label: page.t("Проверить", "Preview")
-          fg: page.fg; accent: page.accent; fontFamily: page.ff
-          onClicked: { page.mod.notch.settingsOpen = false; page.mod.cmd(["camera", "preview", modelData.devices[0]]) }
-        }
-      }
-    }
-  }
 }

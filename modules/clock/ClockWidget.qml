@@ -28,38 +28,6 @@ Column {
     }
   }
 
-  // the Kronos plugin is still on: it draws the clock, these settings wait
-  Rectangle {
-    visible: page.mod && page.mod.kronosOn
-    width: parent.width
-    height: kronosRow.implicitHeight + Style.space(20)
-    radius: SH.HubStyle.radiusSmall
-    color: SH.HubStyle.tint(page.accent, 0.14)
-    Row {
-      id: kronosRow
-      x: Style.space(12); anchors.verticalCenter: parent.verticalCenter
-      width: parent.width - Style.space(24)
-      spacing: Style.space(10)
-      Text {
-        anchors.verticalCenter: parent.verticalCenter
-        width: parent.width - switchBtn.width - parent.spacing
-        wrapMode: Text.Wrap
-        text: page.ru ? "Сейчас часы рисует плагин Kronos. Выключите его, чтобы перейти на встроенные часы с этими настройками."
-                      : "The Kronos plugin draws the clock now. Turn it off to switch to the built-in clock with these settings."
-        color: page.fg
-        font.family: page.ff; font.pixelSize: Style.font.caption
-      }
-      SH.HubChip {
-        id: switchBtn
-        anchors.verticalCenter: parent.verticalCenter
-        label: page.ru ? "Перейти" : "Switch"
-        on: true
-        fg: page.fg; accent: page.accent; ink: page.bgc; fontFamily: page.ff
-        onClicked: page.mod.notch.setPluginEnabled("mash2rafi.kronos", false)
-      }
-    }
-  }
-
   readonly property bool kronos: page.mod && String(page.mod.opt("style", "kronos")) === "kronos"
   component Group: SH.HubCaption { fg: page.fg; fontFamily: page.ff }
 
@@ -86,13 +54,20 @@ Column {
       onChanged: function(v) { page.mod.persist({ style: v }) }
     }
   }
+  // the digits: the widget font (Personalisation → Fonts) or one accent font
+  readonly property var fontsMod: page.mod && page.mod.notch ? page.mod.notch.moduleById("fonts") : null
+  Component.onCompleted: if (fontsMod && !fontsMod.families.length) fontsMod.list()
   SH.HubRow {
-    title: page.ru ? "Шрифт цифр" : "Digit font"; fg: page.fg; fontFamily: page.ff
+    title: page.ru ? "Шрифт цифр" : "Digit font"
+    hint: page.ru ? "Как у виджетов — из «Персонализация → Шрифты»; или свой шрифт только для цифр" : "The widget font (Personalisation → Fonts), or a font for the digits only"
+    fg: page.fg; fontFamily: page.ff
     SH.HubSelect {
-      width: Style.space(150); showLabel: false
-      options: [{ value: "default", label: page.ru ? "Как у виджетов" : "Widget font" }, { value: "gothic", label: page.ru ? "Готический (как у цитат)" : "Blackletter (like quotes)" },
-                { value: "serif", label: page.ru ? "С засечками" : "Serif" }]
-      value: page.mod ? String(page.mod.opt("digits", "default")) : "default"
+      width: Style.space(200); showLabel: false
+      readonly property string cur: page.mod ? String(page.mod.opt("digits", "default")) : "default"
+      options: [{ value: "default", label: page.ru ? "Как у виджетов" : "Widget font" }]
+               .concat(cur === "gothic" ? [{ value: "gothic", label: "UnifrakturMaguntia" }] : cur === "serif" ? [{ value: "serif", label: "Noto Serif" }] : [])
+               .concat((page.fontsMod ? page.fontsMod.families : []).map(function(f) { return { value: f, label: f } }))
+      value: cur
       foreground: page.fg; accent: page.accent; background: page.bgc; fontFamily: page.ff
       onChanged: function(v) { page.mod.persist({ digits: v }) }
     }

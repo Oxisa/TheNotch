@@ -85,15 +85,13 @@ Column {
           x: Style.space(6); y: Style.space(6); width: parent.width - Style.space(12); height: card.width * 0.62 - Style.space(6)
           radius: SH.HubStyle.radius
           color: "transparent"
-          // its preview, or else its first wallpaper
+          // its preview, or else its first wallpaper (checked first: no failed loads)
+          FolderListModel { id: pv; folder: "file://" + card.modelData.path; nameFilters: ["preview.png"]; showDirs: false }
           FolderListModel { id: bgs; folder: "file://" + card.modelData.path + "/backgrounds"; nameFilters: ["*.png", "*.jpg", "*.jpeg", "*.webp"]; showDirs: false }
           Image {
-            id: prev
             anchors.fill: parent; fillMode: Image.PreserveAspectCrop; asynchronous: true; sourceSize.width: 420
-            source: "file://" + card.modelData.path + "/preview.png"
-            onStatusChanged: if (status === Image.Error && bgs.count > 0) source = "file://" + bgs.get(0, "filePath")
+            source: pv.count > 0 ? "file://" + card.modelData.path + "/preview.png" : bgs.count > 0 ? "file://" + bgs.get(0, "filePath") : ""
           }
-          Connections { target: bgs; function onCountChanged() { if (prev.status === Image.Error && bgs.count > 0) prev.source = "file://" + bgs.get(0, "filePath") } }
           Rectangle { visible: card.working; anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.5); Text { anchors.centerIn: parent; text: page.t("Ставлю…", "Applying…"); color: "white"; font.family: page.ff; font.pixelSize: Style.font.caption } }
         }
         Item {

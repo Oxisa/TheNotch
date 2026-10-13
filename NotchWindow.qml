@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Shapes
 import Quickshell
 import Quickshell.Wayland
 import Quickshell.Hyprland
@@ -48,8 +49,17 @@ PanelWindow {
     right: edge !== "left"
   }
   // deep enough for the biggest state; the island animates inside
-  implicitHeight: vertical ? 0 : Math.max(island.height, island.targetH) + Style.space(24)
-  implicitWidth: vertical ? Math.max(island.width, island.targetW) + Style.space(24) : 0
+  // The window grows at once and shrinks only after the island has: resizing
+  // a layer surface on every animation frame made the animation stutter.
+  property real keepW: 0
+  property real keepH: 0
+  readonly property real wantW: island.targetW
+  readonly property real wantH: island.targetH
+  onWantWChanged: { if (wantW >= keepW) keepW = wantW; else shrinkLater.restart() }
+  onWantHChanged: { if (wantH >= keepH) keepH = wantH; else shrinkLater.restart() }
+  Timer { id: shrinkLater; interval: 380; onTriggered: { win.keepW = win.wantW; win.keepH = win.wantH } }
+  implicitHeight: vertical ? 0 : Math.max(keepH, wantH) + Style.space(24)
+  implicitWidth: vertical ? Math.max(keepW, wantW) + Style.space(24) : 0
   mask: Region { item: island }
 
   // -------------------------------------------------------- target sizes
@@ -90,7 +100,7 @@ PanelWindow {
   // the cursor is and close if it's clearly off the island.
   readonly property bool open: mode === "expanded" || mode === "peek"
   Timer {
-    interval: 400; repeat: true
+    interval: 1000; repeat: true
     running: win.open
     onTriggered: if (!cursorProc.running) cursorProc.running = true
   }
@@ -129,25 +139,44 @@ PanelWindow {
     x: win.edge === "left" ? 0 : win.edge === "right" ? win.width - width : Math.round((win.width - width) / 2)
     y: win.edge === "top" ? 0 : win.edge === "bottom" ? win.height - height : Math.round((win.height - height) / 2)
 
-    Rectangle {
+    // The island as ONE shape with its concave corners (top / bottom edge):
+    // separate pieces left a hairline seam at fractional scales, and it
+    // flickered while the width animated. Side edges keep a plain rectangle.
+    readonly property real rad: win.radius
+    property real r: rad
+    Behavior on r { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
+    readonly property real f: Style.space(12)                  // the concave corner's size
+    readonly property real cr: Math.max(0, Math.min(r, height / 2, width / 2))
+    Shape {
       id: shape
+      visible: !win.vertical
+      anchors.fill: parent
+      preferredRendererType: Shape.CurveRenderer
+      // drawn for the top edge; turned over for the bottom one
+      transform: Scale { origin.y: shape.height / 2; yScale: win.edge === "bottom" ? -1 : 1 }
+      ShapePath {
+        fillColor: win.fill
+        strokeWidth: -1
+        startX: -island.f; startY: 0
+        PathArc { x: 0; y: island.f; radiusX: island.f; radiusY: island.f; direction: PathArc.Clockwise }
+        PathLine { x: 0; y: shape.height - island.cr }
+        PathArc { x: island.cr; y: shape.height; radiusX: island.cr; radiusY: island.cr; direction: PathArc.Counterclockwise }
+        PathLine { x: shape.width - island.cr; y: shape.height }
+        PathArc { x: shape.width; y: shape.height - island.cr; radiusX: island.cr; radiusY: island.cr; direction: PathArc.Counterclockwise }
+        PathLine { x: shape.width; y: island.f }
+        PathArc { x: shape.width + island.f; y: 0; radiusX: island.f; radiusY: island.f; direction: PathArc.Clockwise }
+        PathLine { x: -island.f; y: 0 }
+      }
+    }
+    Rectangle {
+      visible: win.vertical
       anchors.fill: parent
       color: win.fill
-      // flat on the screen edge, round elsewhere
-      topLeftRadius: win.edge === "top" || win.edge === "left" ? 0 : win.radius
-      topRightRadius: win.edge === "top" || win.edge === "right" ? 0 : win.radius
-      bottomLeftRadius: win.edge === "bottom" || win.edge === "left" ? 0 : win.radius
-      bottomRightRadius: win.edge === "bottom" || win.edge === "right" ? 0 : win.radius
-      Behavior on topLeftRadius { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
-      Behavior on topRightRadius { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
-      Behavior on bottomLeftRadius { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
-      Behavior on bottomRightRadius { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
-      // no outline: it ran along the screen edge and stopped at the concave
-      // corners, so the notch looked pieced together
+      topLeftRadius: win.edge === "left" ? 0 : island.r
+      bottomLeftRadius: win.edge === "left" ? 0 : island.r
+      topRightRadius: win.edge === "right" ? 0 : island.r
+      bottomRightRadius: win.edge === "right" ? 0 : island.r
     }
-    // concave corners where the island meets a top/bottom edge
-    Fillet { visible: !win.vertical; flip: win.edge === "bottom"; fill: win.fill; x: -width; y: win.edge === "top" ? 0 : parent.height - height }
-    Fillet { visible: !win.vertical; flip: win.edge === "bottom"; mirrored: true; fill: win.fill; x: parent.width; y: win.edge === "top" ? 0 : parent.height - height }
 
     // click opens/closes; controls inside take their own clicks first;
     // middle click: the microphone on / off, whatever the notch shows
@@ -614,18 +643,36 @@ PanelWindow {
         clip: true
         interactive: contentHeight > height
         boundsBehavior: Flickable.StopAtBounds
-        Loader {
+        // one page per module, built the first time it's shown; the main tabs
+        // are then kept, so switching between them only shows another one
+        // (rebuilding each time made every switch stutter); tools unload
+        Item {
           id: expandedPage
           width: pageArea.width
-          // built on first open, then kept; switching modules rebuilds
-          property bool everOpened: false
-          active: everOpened
-          sourceComponent: win.cur ? win.cur.page : null
+          readonly property var item: { var ls = pageLoaders; for (var i = 0; i < pages.count; i++) { var l = pages.itemAt(i); if (l && l.isCur) return l.item } return null }
+          property int pageLoaders: 0
+          height: item ? item.implicitHeight : 0
+          Repeater {
+            id: pages
+            model: win.notch ? win.notch.modules.filter(function(m) { return m.page !== null && m.page !== undefined }) : []
+            delegate: Loader {
+              id: pageLoader
+              required property var modelData
+              readonly property bool isCur: win.cur === modelData
+              property bool visited: false
+              function visit() { if (isCur && win.mode === "expanded") visited = true }
+              onIsCurChanged: visit()
+              Connections { target: win; function onModeChanged() { pageLoader.visit() } }
+              Component.onCompleted: visit()
+              // the main tabs stay built; tools (notes, shelf…) unload after use
+              active: visited && (modelData.topTab || isCur)
+              visible: isCur
+              width: pageArea.width
+              sourceComponent: modelData.page
+              onLoaded: expandedPage.pageLoaders++
+            }
+          }
         }
-      }
-      Connections {
-        target: win
-        function onModeChanged() { if (win.mode === "expanded") expandedPage.everOpened = true }
       }
     }
   }

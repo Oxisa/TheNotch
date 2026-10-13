@@ -13,6 +13,7 @@ var SECTIONS = [
   { id: "workspaces", icon: "\u{f0570}", ru: "Рабочие столы",        en: "Workspaces" },
   { id: "privacy",   icon: "\u{f0565}", ru: "Конфиденциальность",    en: "Privacy" },
   { id: "apps",      icon: "\u{f003b}", ru: "Приложения",            en: "Apps" },
+  { id: "tools",     icon: "\u{f1064}", ru: "Инструменты",           en: "Tools" },
   { id: "modules",   icon: "\u{f0a1a}", ru: "Модули",                en: "Modules" },
   { id: "plugins",   icon: "\u{f0431}", ru: "Плагины Omarchy",       en: "Omarchy plugins" },
 ]

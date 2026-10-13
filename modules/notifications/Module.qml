@@ -74,8 +74,9 @@ NotchModule {
   }
 
   // --------------------------------------------- reading the daemon's files
-  // A small poll (once a second) rather than a folder watch: the watch
-  // missed deletions, so cleared notifications lingered in the list.
+  // The built-in daemon (vendor/notifications) signals when it has written,
+  // moved or deleted a file; that triggers a read. A slow timer is only a
+  // safety net. (A read every second spawned a shell 3600 times an hour.)
   property string lastRaw: ""
   Process {
     id: scan
@@ -85,7 +86,10 @@ NotchModule {
       "--", nmod.dir.replace(/\/$/, "")]
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: nmod.ingest(text) }
   }
-  Timer { interval: 1000; repeat: true; running: true; triggeredOnStart: true; onTriggered: nmod.rescan() }
+  Timer { interval: 30000; repeat: true; running: true; triggeredOnStart: true; onTriggered: nmod.rescan() }
+  // the built-in daemon says when its files change (TheNotch hosts it)
+  Connections { target: nmod.notch ? nmod.notch.notifications : null; function onFilesChanged() { rescanSoon.restart() } }
+  Timer { id: rescanSoon; interval: 120; onTriggered: nmod.rescan() }
   function rescan() { if (!scan.running) scan.running = true }
 
   function ingest(raw) {

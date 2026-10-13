@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Networking
 import qs.Commons
 import "../.."
 
@@ -17,7 +18,7 @@ NotchModule {
   function t(a, b) { return ru ? a : b }
   title: t("Сеть", "Network")
   icon: "\u{f059f}"
-  description: t("Интернет, Wi-Fi, проводная сеть и туннели — настройки и виджеты", "Internet, Wi-Fi, wired network and tunnels — settings and widgets")
+  description: t("Интернет, Wi-Fi, проводная сеть, трафик — настройки и виджеты", "Internet, Wi-Fi, wired network, traffic — settings and widgets")
   inRail: false
   settingsSection: "network"
   sectionOrder: 1
@@ -27,7 +28,24 @@ NotchModule {
 
   readonly property string bin: decodeURIComponent(Qt.resolvedUrl("bin/netctl").toString().replace(/^file:\/\//, ""))
   property var st: ({ devices: [], tunnels: [], wifiRadio: false, primary: null })
-  property var networks: []
+  // Wi-Fi comes live from NetworkManager (Quickshell.Networking): the list,
+  // signal, saved/connected, connecting — no nmcli runs. netctl keeps what
+  // the API doesn't give: addresses, DNS, tunnels, latency, wired profiles.
+  readonly property var wifiDev: { var ds = Networking.devices ? Networking.devices.values : []; for (var i = 0; i < ds.length; i++) if (ds[i].type === DeviceType.Wifi) return ds[i]; return null }
+  property bool wantScan: false                  // a Wi-Fi list is on screen (Settings or Centre)
+  Binding { target: nw.wifiDev; property: "scannerEnabled"; value: nw.active && nw.wifiOn && (nw.watching || nw.wantScan); when: nw.wifiDev !== null }
+  readonly property bool wifiOn: !!(Networking.wifiEnabled && Networking.wifiHardwareEnabled)
+  readonly property var networks: {
+    if (!wifiDev || !wifiOn) return []
+    var best = {}, ns = wifiDev.networks ? wifiDev.networks.values : []
+    for (var i = 0; i < ns.length; i++) {
+      var n = ns[i]; if (!n.name) continue
+      var o = { ssid: n.name, signal: Math.round(Math.max(0, Math.min(1, n.signalStrength)) * 100), active: n.connected, saved: n.known,
+                secure: n.security !== WifiSecurityType.Open && n.security !== WifiSecurityType.Owe, net: n }
+      if (!best[o.ssid] || o.active || (o.signal > best[o.ssid].signal && !best[o.ssid].active)) best[o.ssid] = o
+    }
+    return Object.keys(best).map(function(k) { return best[k] }).sort(function(a, b) { return (b.active - a.active) || (b.signal - a.signal) })
+  }
   property var saved: []
   property var latency: ({})
   property string error: ""
@@ -44,7 +62,6 @@ NotchModule {
         nw.busy = ""
         if (d) {
           if (a[0] === "status") nw.st = d
-          else if (a[0] === "wifi") nw.networks = d.networks || []
           else if (a[0] === "saved") nw.saved = d.saved || []
           else if (a[0] === "ping") nw.latency = d
           else if (a[0] === "qr") nw.qr = d.ok ? { ssid: d.ssid, url: "file://" + d.path + "?" + Date.now() } : null
@@ -67,9 +84,17 @@ NotchModule {
     for (var i = 0; i < queue.length; i++) if (JSON.stringify(queue[i]) === JSON.stringify(args)) return
     queue = queue.concat([args]); next()
   }
-  function refresh() { cmd(["status"]); if (st.wifiRadio) cmd(["wifi"]); cmd(["saved"]) }
-  function connect(ssid, password) { error = ""; cmd(password ? ["connect", ssid, password] : ["connect", ssid]) }
-  function setRadio(on) { cmd(["radio", on ? "on" : "off"]) }
+  function refresh() { cmd(["status"]); cmd(["saved"]) }
+  // a Wi-Fi network: straight through NetworkManager; anything else (a saved
+  // wired profile) through netctl
+  function connect(ssid, password) {
+    error = ""
+    var hit = networks.filter(function(x) { return x.ssid === ssid })[0]
+    if (hit && hit.net) { if (password) hit.net.connectWithPsk(password); else hit.net.connect(); after.restart(); return }
+    cmd(password ? ["connect", ssid, password] : ["connect", ssid])
+  }
+  function setRadio(on) { Networking.wifiEnabled = on; after.restart() }
+  Timer { id: after; interval: 1500; onTriggered: nw.refresh() }
   property var qr: null
 
   // poll: often while settings are open, rarely for the widgets
@@ -128,17 +153,38 @@ NotchModule {
   deskEnabled: opt("widget", false) === true
   function setDeskEnabled(on) { persist({ widget: on }) }
   deskDefault: ({ x: 0.04, y: 0.62 })
-  deskWidget: Component { NetworkCard { mod: nw } }
-  deskList: [
-    DeskWidget {
-      wid: "netring"
-      title: nw.t("Сеть: кольцо", "Network ring")
-      icon: "\u{f0928}"
-      component: Component { NetworkRing { mod: nw } }
-      enabled: nw.opt("ringWidget", false) === true
-      defaultPos: ({ x: 0.16, y: 0.62 })
-      onToggled: function(on) { nw.persist({ ringWidget: on }) }
+  // one network widget, two looks: the card or the ring (Settings → Widgets)
+  readonly property string deskLook: String(opt("look", "card"))
+  deskWidget: Component {
+    Loader {
+      property bool editing: false
+      property bool deskVertical: false
+      property var deskStyle: ({})
+      property real deskScale: 1
+      readonly property bool deskShown: item ? item.deskShown !== false : false
+      function feed() {
+        if (!item) return
+        item.editing = editing
+        if ("deskVertical" in item) item.deskVertical = deskVertical
+        if ("deskStyle" in item) item.deskStyle = deskStyle
+        if ("deskScale" in item) item.deskScale = deskScale
+      }
+      onEditingChanged: feed()
+      onDeskVerticalChanged: feed()
+      onDeskStyleChanged: feed()
+      onDeskScaleChanged: feed()
+      onLoaded: feed()
+      sourceComponent: nw.deskLook === "ring" ? ringLook : cardLook
     }
-  ]
+  }
+  Component { id: cardLook; NetworkCard { mod: nw } }
+  Component { id: ringLook; NetworkRing { mod: nw } }
+  // the ring used to be a widget of its own: fold it into this one
+  property bool migrated: false
+  readonly property bool canMigrate: notch !== null && notch.settingsLoaded
+  onCanMigrateChanged: if (canMigrate && !migrated) {
+    migrated = true
+    if (opt("ringWidget", false) === true) persist(deskEnabled ? { ringWidget: false } : { widget: true, look: "ring", ringWidget: false })
+  }
   widgetPage: Component { NetworkWidgetSettings { mod: nw } }
 }

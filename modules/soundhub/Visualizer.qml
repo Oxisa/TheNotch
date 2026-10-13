@@ -9,7 +9,8 @@ import "../../fonts"
 //   bars    tall bars with peak dots that fall slowly
 //   led     a dot matrix, lit from the bottom like a rack equalizer
 //   pulse   a ring of rays around a disc that breathes with the bass
-// Looks after rover-001/whimsy's visualizers (MIT); no code taken.
+// Looks after rover-001/whimsy's visualizers (MIT); no code taken. Drawn
+// with scene-graph items so the GPU does the work.
 Rectangle {
   id: v
   property var mod: null
@@ -33,62 +34,95 @@ Rectangle {
   border.width: 1
   border.color: DS.border(deskStyle, Color.foreground)
 
-  // falling peaks for "bars"
-  property var peaks: []
-  onLevelsChanged: {
-    var p = peaks.slice(), l = levels
-    for (var i = 0; i < l.length; i++) p[i] = Math.max(l[i], (p[i] || 0) - 0.012)
-    peaks = p
-    canvas.requestPaint()
-  }
+  // Drawn with scene-graph items, not a Canvas: the levels only move
+  // heights and opacities (the GPU does the rest) — a Canvas repainting 24
+  // gradients 40 times a second cost ~9 % of a core.
+  readonly property int n: Math.min(24, levels.length || 24)
+  function lv(i) { return Math.max(0, Math.min(1, levels[i] || 0)) }
 
-  Canvas {
-    id: canvas
+  Item {
+    id: area
     anchors.fill: parent
     anchors.margins: Style.space(16)
-    onPaint: {
-      var ctx = getContext("2d")
-      ctx.reset()
-      var l = v.levels, n = Math.min(24, l.length)
-      if (!n) return
-      var w = width, h = height
-      if (v.look === "bars") {
-        var gap = 4, bw = (w - gap * (n - 1)) / n
-        for (var i = 0; i < n; i++) {
-          var x = i * (bw + gap), lv = Math.max(0.02, l[i]), bh = lv * h
-          var g = ctx.createLinearGradient(0, h, 0, h - bh)
-          g.addColorStop(0, Qt.rgba(v.accent.r, v.accent.g, v.accent.b, 0.55))
-          g.addColorStop(1, v.accent)
-          ctx.fillStyle = g
-          ctx.beginPath(); ctx.roundedRect(x, h - bh, bw, bh, bw / 3, bw / 3); ctx.fill()
-          var pk = (v.peaks[i] || 0) * h
-          ctx.fillStyle = v.fg
-          ctx.beginPath(); ctx.roundedRect(x, h - pk - 5, bw, 3, 1.5, 1.5); ctx.fill()
+
+    // ---- bars, with peak marks that fall slowly
+    Row {
+      visible: v.look === "bars"
+      width: area.width; height: area.height
+      spacing: 4
+      Repeater {
+        model: v.n
+        delegate: Item {
+          id: bar
+          required property int index
+          readonly property real level: Math.max(0.02, v.lv(index))
+          property real peak: 0
+          onLevelChanged: peak = Math.max(level, peak - 0.012)
+          width: (area.width - 4 * (v.n - 1)) / v.n; height: area.height
+          Rectangle {
+            y: bar.height - height
+            width: bar.width; height: bar.level * bar.height
+            radius: width / 3
+            gradient: Gradient {
+              GradientStop { position: 0; color: v.accent }
+              GradientStop { position: 1; color: Qt.rgba(v.accent.r, v.accent.g, v.accent.b, 0.55) }
+            }
+          }
+          Rectangle { y: bar.height - bar.peak * bar.height - 5; width: bar.width; height: 3; radius: 1.5; color: v.fg }
         }
-      } else if (v.look === "led") {
-        var rows = 10, cols = n, cw = w / cols, rh = h / rows, r = Math.min(cw, rh) * 0.32
-        for (var c = 0; c < cols; c++) {
-          var lit = Math.round(l[c] * rows)
-          for (var rr = 0; rr < rows; rr++) {
-            var on = rr < lit
-            var hot = rr >= rows * 0.8
-            ctx.fillStyle = on ? (hot ? Qt.tint(v.accent, Qt.rgba(1, 0.3, 0.3, 0.5)) : v.accent) : Qt.rgba(v.fg.r, v.fg.g, v.fg.b, 0.08)
-            ctx.beginPath(); ctx.arc(c * cw + cw / 2, h - (rr * rh + rh / 2), r, 0, Math.PI * 2); ctx.fill()
+      }
+    }
+
+    // ---- LED matrix, lit from the bottom
+    Row {
+      visible: v.look === "led"
+      Repeater {
+        model: v.look === "led" ? v.n : 0
+        delegate: Column {
+          id: col
+          required property int index
+          readonly property int lit: Math.round(v.lv(index) * 10)
+          width: area.width / v.n
+          Repeater {
+            model: 10
+            delegate: Item {
+              required property int index
+              readonly property int row: 9 - index                   // 0 = bottom
+              width: col.width; height: area.height / 10
+              Rectangle {
+                anchors.centerIn: parent
+                width: Math.min(parent.width, parent.height) * 0.64; height: width; radius: width / 2
+                color: parent.row < col.lit ? (parent.row >= 8 ? Qt.tint(v.accent, Qt.rgba(1, 0.3, 0.3, 0.5)) : v.accent) : Qt.rgba(v.fg.r, v.fg.g, v.fg.b, 0.08)
+              }
+            }
           }
         }
-      } else {                                         // pulse
-        var cx = w / 2, cy = h / 2, base = Math.min(w, h) * 0.22
-        var bass = (l[0] + l[1] + l[2]) / 3
-        ctx.fillStyle = Qt.rgba(v.accent.r, v.accent.g, v.accent.b, 0.25 + bass * 0.5)
-        ctx.beginPath(); ctx.arc(cx, cy, base * (0.8 + bass * 0.5), 0, Math.PI * 2); ctx.fill()
-        ctx.strokeStyle = v.accent; ctx.lineCap = "round"; ctx.lineWidth = 3
-        var rays = n * 2
-        for (var k = 0; k < rays; k++) {
-          var lv2 = l[k < n ? k : rays - 1 - k] || 0
-          var a = -Math.PI / 2 + k * Math.PI * 2 / rays
-          var r0 = base + 6, r1 = r0 + 6 + lv2 * Math.min(w, h) * 0.26
-          ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0)
-          ctx.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1); ctx.stroke()
+      }
+    }
+
+    // ---- pulse: a disc that breathes with the bass, rays around it
+    Item {
+      visible: v.look === "pulse"
+      anchors.fill: parent
+      readonly property real base: Math.min(width, height) * 0.22
+      readonly property real bass: (v.lv(0) + v.lv(1) + v.lv(2)) / 3
+      Rectangle {
+        anchors.centerIn: parent
+        width: parent.base * 2 * (0.8 + parent.bass * 0.5); height: width; radius: width / 2
+        color: Qt.rgba(v.accent.r, v.accent.g, v.accent.b, 0.25 + parent.bass * 0.5)
+      }
+      Repeater {
+        model: v.look === "pulse" ? v.n * 2 : 0
+        delegate: Rectangle {
+          required property int index
+          readonly property real level: v.lv(index < v.n ? index : v.n * 2 - 1 - index)
+          readonly property real r0: parent.base + 6
+          readonly property real len: 6 + level * Math.min(parent.width, parent.height) * 0.26
+          // a ray standing on the disc's edge, turned around the centre
+          x: parent.width / 2 - width / 2; y: parent.height / 2 - r0 - len
+          width: 3; height: len; radius: 1.5
+          color: v.accent
+          transform: Rotation { origin.x: 1.5; origin.y: r0 + len; angle: index * 360 / (v.n * 2) }
         }
       }
     }

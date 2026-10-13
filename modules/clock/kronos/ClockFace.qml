@@ -193,13 +193,18 @@ Item {
   }
 
   function markRingDirty() {
-    rings.repaint()
+    rings.repaint(); secRings.repaint()
   }
 
   function refreshTime() {
     face.timeMs = Date.now()
-    rings.repaint()
+    rings.repaint(); secRings.repaint()
   }
+
+  // the second ring's turn between two whole seconds: one animation per
+  // second on the GPU instead of a repaint per frame
+  property real secSpin: 0
+  NumberAnimation on secSpin { id: spin; from: 0; to: -6; duration: 1000; running: false }
 
   Timer {
     id: ringTick
@@ -210,7 +215,13 @@ Item {
     // inline rather than face.refreshTime(): on a shell reload the timer can
     // fire while the face is being torn down and its functions are gone
     // ("refreshTime is not a function" in the log) — TheNotch fork fix
-    onTriggered: { face.timeMs = Date.now(); rings.repaint() }
+    onTriggered: {
+      face.timeMs = Date.now()
+      // next whole second: re-aim, then turn smoothly through it
+      var ms = face.timeMs % 1000
+      interval = Math.max(20, 1000 - ms)
+      if (face.showSeconds && !face.lowPower) { spin.stop(); spin.from = -ms / 1000 * 6; spin.duration = 1000 - ms; spin.start() }
+    }
   }
 
   onRingTickMsChanged: ringTick.restart()
@@ -225,8 +236,15 @@ Item {
     height: face.geo.height
     clip: false
 
+    // TheNotch: two canvases, each painted once per whole step (a second, a
+    // minute) and turned on the GPU in between — the same smooth rings without
+    // repainting 120 dots and labels 60 times a second
     RingCanvas {
       id: rings
+      only: "minute"
+      minuteProgress: Math.floor(face.minuteProgress)
+      onMinuteProgressChanged: requestPaint()
+      transform: Rotation { origin.x: face.geo.cx; origin.y: face.geo.cy; angle: -(face.minuteProgress - Math.floor(face.minuteProgress)) * 6 }
       visible: face.showRings && face.spec.showRings !== false
       width: parent.width
       height: face.geo.dialH
@@ -234,8 +252,6 @@ Item {
       cy: face.geo.cy
       minuteRadius: face.minuteRadius
       secondRadius: face.secondRadius
-      minuteProgress: face.minuteProgress
-      secondProgress: face.secondProgress
       focusAngle: face.ringFocusAngle + face.ringRotationOffsetRad
       fullRing: face.fullRing
       showSeconds: face.showSeconds
@@ -254,6 +270,38 @@ Item {
       arcEmphasis: face.spec.arcEmphasis === true
       arcEdgeFade: face.spec.arcEdgeFade
     }
+    RingCanvas {
+      id: secRings
+      only: "second"
+      secondProgress: Math.floor(face.secondProgress)
+      onSecondProgressChanged: requestPaint()
+      transform: Rotation { origin.x: face.geo.cx; origin.y: face.geo.cy; angle: face.secSpin }
+      visible: face.showRings && face.spec.showRings !== false
+      width: parent.width
+      height: face.geo.dialH
+      cx: face.geo.cx
+      cy: face.geo.cy
+      minuteRadius: face.minuteRadius
+      secondRadius: face.secondRadius
+      focusAngle: face.ringFocusAngle + face.ringRotationOffsetRad
+      fullRing: face.fullRing
+      showSeconds: face.showSeconds
+      ringStrength: face.ringStrength
+      ringColor: face.colors.minuteRing
+      secondRingColor: face.colors.secondRing
+      minuteLabelColor: face.minuteRingLabelColor
+      secondLabelColor: face.secondRingLabelColor
+      showLabels: face.showRingLabels
+      labelScale: face.ringLabelScale
+      chromeScale: face.layoutScale
+      labelFont: face.labelFont
+      arcFrom: face.ringArc.from
+      arcTo: face.ringArc.to
+      showGuideRing: face.spec.showGuideRing
+      arcEmphasis: face.spec.arcEmphasis === true
+      arcEdgeFade: face.spec.arcEdgeFade
+    }
+
 
     Connections {
       target: face

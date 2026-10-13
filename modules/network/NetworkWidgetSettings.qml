@@ -14,13 +14,24 @@ Column {
   readonly property string ff: Fonts.ui
   function t(a, b) { return mod ? mod.t(a, b) : b }
   SH.HubRow {
-    title: page.t("Карточка сети", "Network card"); hint: page.t("Подключение, скорость с графиком, задержка, туннель", "Connection, speed with a graph, latency, tunnel")
+    title: page.t("Сеть на рабочем столе", "Network on the desktop"); hint: page.t("Подключение, скорость, задержка", "Connection, speed, latency")
     fg: page.fg; fontFamily: page.ff
     SH.HubSwitch { checked: page.mod ? page.mod.deskEnabled : false; fg: page.fg; accent: page.accent; ink: page.bgc; onToggled: page.mod.setDeskEnabled(!checked) }
   }
   SH.HubRow {
-    title: page.t("Кольцо сигнала", "Signal ring"); hint: page.t("Минимально: сигнал Wi-Fi и скорость", "Minimal: Wi-Fi signal and speed")
+    title: page.t("Вид", "Look"); hint: page.t("Карточка с графиком или кольцо сигнала", "A card with a graph or a signal ring")
     fg: page.fg; fontFamily: page.ff
-    SH.HubSwitch { checked: page.mod ? page.mod.opt("ringWidget", false) === true : false; fg: page.fg; accent: page.accent; ink: page.bgc; onToggled: page.mod.persist({ ringWidget: !checked }) }
+    Row {
+      spacing: Style.space(4)
+      Repeater {
+        model: [{ v: "card", l: page.t("Карточка", "Card") }, { v: "ring", l: page.t("Кольцо", "Ring") }]
+        delegate: SH.HubChip {
+          required property var modelData
+          label: modelData.l; on: page.mod && page.mod.deskLook === modelData.v; subtle: true
+          fg: page.fg; accent: page.accent; fontFamily: page.ff
+          onClicked: page.mod.persist({ look: modelData.v })
+        }
+      }
+    }
   }
 }

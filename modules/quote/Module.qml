@@ -5,9 +5,8 @@ import "../.."
 import "../../vendor/dailyquote" as DQP
 import "../../vendor/dailyquote/settings.js" as DQ
 
-// Daily Quote as a TheNotch dashboard. The quote and its desktop overlay
-// belong to the osia.dailyquote plugin; this reads the same files (current
-// quote, settings) and drives it over its IPC, so both always agree.
+// Daily Quote as a TheNotch dashboard: the quote, its desktop card and the
+// helper (vendor/dailyquote) that keeps it fresh.
 //   page   the quote in blackletter + translation, New / Copy, and the
 //          overlay's settings (show, how often, move it)
 //   event  a new quote flashes out of the notch
@@ -19,16 +18,11 @@ NotchModule {
   sectionOrder: 12
 
   // ------------------------------------------- widget: the desktop quote
-  // Drawn by the osia.dailyquote plugin while it is on (it reads the same
-  // settings); with the plugin off, this module draws it itself.
   widgetTitle: t("widget")
   widgetIcon: "\u{f0757}"
   widgetPage: Component { QuoteWidget { mod: qmod } }
-  // TheNotch's widget layer draws the quote card while the Daily Quote plugin
-  // is off (with it on, the plugin draws its own and this stays out of the
-  // way); the notch then keeps the quote fresh itself with the plugin's script.
-  readonly property bool pluginOn: notch !== null && notch.pluginEnabled("osia.dailyquote")
-  readonly property bool hosting: active && notch !== null && notch.omarchyPlugins.length > 0 && !pluginOn
+  // TheNotch's widget layer draws the quote card and keeps the quote fresh
+  readonly property bool hosting: active && notch !== null && notch.omarchyPlugins.length > 0
   readonly property bool ru: notch !== null && notch.lang === "ru"
   readonly property string helper: decodeURIComponent(Qt.resolvedUrl("../../vendor/dailyquote/bin/dailyquote").toString().replace(/^file:\/\//, ""))
   Process { id: fetch }
@@ -184,8 +178,7 @@ NotchModule {
   onQuoteChanged: if (commentaryFor && isVerse && commentaryFor !== quote.ref.book + quote.ref.chapter + ":" + quote.ref.verse) { commentary = ""; commentaryFor = "" }
   function setPlace(p) { setMany({ posX: DQ.PLACES[p][0], posY: DQ.PLACES[p][1] }) }
 
-  function ipc(cmd) { Quickshell.execDetached(["qs", "-p", Quickshell.shellDir, "ipc", "call", "osia.dailyquote", cmd]) }
-  function next() { if (pluginOn) ipc("next"); else runHelper(["next", cfg.lang]) }
+  function next() { runHelper(["next", cfg.lang]) }
   function move() { if (notch) notch.editLayout(true) }
   function copy() {
     if (!quote) return

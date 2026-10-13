@@ -12,8 +12,7 @@ import "../../fonts"
 // Clock: Kronos's orbital/digital desktop clock as a TheNotch widget (a fork
 // of MASH2RAFI/omarchy-kronos, MIT — see kronos/README.md for what changed).
 // No dashboard; its card is under Settings → Widgets. Settings live in
-// modules.clock (seeded once from the Kronos plugin's), and while the Kronos
-// plugin itself is on, it draws the clock and this module stays out of the way.
+// modules.clock.
 NotchModule {
   id: cm
   readonly property bool ru: notch !== null && notch.lang === "ru"
@@ -32,35 +31,13 @@ NotchModule {
   // digits: the theme's font, blackletter (the quotes' UnifrakturMaguntia) or a serif
   FontLoader { id: gothic; source: Qt.resolvedUrl("../../vendor/dailyquote/fonts/UnifrakturMaguntia-Book.ttf") }
   readonly property string digitStyle: String(opt("digits", "default"))
-  readonly property string digitFont: digitStyle === "gothic" ? gothic.name : digitStyle === "serif" ? "Noto Serif" : ""
-
-  // first run: start from the Kronos plugin's settings (its bar entry)
-  FileView { id: shellJson; path: Quickshell.env("HOME") + "/.config/omarchy/shell.json"; printErrors: false; blockLoading: true }
-  readonly property bool canSeed: notch !== null && notch.settingsLoaded
-  onCanSeedChanged: {
-    if (!canSeed || (notch.settings.modules && notch.settings.modules.clock)) return
-    var e = {}
-    try {
-      var c = JSON.parse(shellJson.text())
-      var secs = c.bar && c.bar.layout ? c.bar.layout : {}
-      for (var s in secs) for (var i = 0; i < secs[s].length; i++)
-        if (secs[s][i] && secs[s][i].id === "mash2rafi.kronos") e = secs[s][i]
-    } catch (err) {}
-    var v = {}
-    for (var k in e) if (k !== "id") v[k] = e[k]
-    v.seeded = true
-    persist(v)
-  }
-
-  // the Kronos plugin draws while it's on; otherwise we do
-  readonly property bool kronosOn: notch !== null && notch.pluginEnabled("mash2rafi.kronos")
-  readonly property bool draws: active && notch !== null && notch.omarchyPlugins.length > 0 && !kronosOn
-                                && cfg.clockEnabled !== false
+  // "default" = the widget font; older values "gothic" / "serif"; else a family name
+  readonly property string digitFont: digitStyle === "default" ? "" : digitStyle === "gothic" ? gothic.name : digitStyle === "serif" ? "Noto Serif" : digitStyle
 
   // content for TheNotch's widget layer. Where it's put decides which way
   // the rings open: toward the middle of the screen, as Kronos does for its
   // nine positions.
-  deskEnabled: !kronosOn && cfg.clockEnabled !== false
+  deskEnabled: cfg.clockEnabled !== false
   function setDeskEnabled(on) { persist({ clockEnabled: on }) }
   deskDefault: ({ x: 0.80, y: 0.04 })
   deskWidget: Component {

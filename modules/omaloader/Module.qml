@@ -7,9 +7,8 @@ import "../../vendor/omaloader" as OL
 import "../../vendor/soundhub" as SH
 import "../../fonts"
 
-// Omaloader as a TheNotch dashboard: the same engine and UI as the bar
-// plugin (loaded from the osia.omaloader folder), with settings in TheNotch's
-// file (modules.omaloader), seeded once from the bar widget's settings.
+// Omaloader as a TheNotch dashboard: the engine and UI from vendor/omaloader,
+// settings in TheNotch's file (modules.omaloader).
 //   live   while downloading: download glyph · percent (above music)
 //   peek   what's downloading, progress, cancel
 // "Done" needs no event of its own: Omaloader's notification shows in the
@@ -19,9 +18,10 @@ NotchModule {
   title: notch && notch.lang === "ru" ? "Загрузки" : "Downloads"
   icon: "󰇚"
   description: notch && notch.lang === "ru" ? "Скачивание видео, звука и GIF по ссылке" : "Download video, audio and GIFs from a link"
-  sectionOrder: 11
+  sectionOrder: 1
   pageWidth: 400
   page: Component { OL.Content { host: omod.engine; only: "download" } }
+  settingsSection: "tools"
   settingsPage: Component { OL.Content { host: omod.engine; only: "settings" } }
 
   property var engine: OL.Engine {
@@ -31,30 +31,6 @@ NotchModule {
     langOverride: omod.notch ? omod.notch.lang : ""
     ff: Fonts.ui
   }
-
-  // first run: start from the bar widget's settings
-  FileView {
-    id: shellJson
-    path: Quickshell.env("HOME") + "/.config/omarchy/shell.json"
-    printErrors: false
-    blockLoading: true
-  }
-  readonly property bool canSeed: notch !== null && notch.settingsLoaded
-  onCanSeedChanged: {
-    if (!canSeed || (notch.settings.modules && notch.settings.modules.omaloader)) return
-    var entry = {}
-    try {
-      var cfg = JSON.parse(shellJson.text())
-      var secs = cfg.bar && cfg.bar.layout ? cfg.bar.layout : {}
-      for (var s in secs) for (var i = 0; i < secs[s].length; i++)
-        if (secs[s][i] && secs[s][i].id === "osia.omaloader") entry = secs[s][i]
-    } catch (e) {}
-    var v = {}
-    for (var k in entry) if (k !== "id") v[k] = entry[k]
-    v.seeded = true
-    notch.modulePersist("omaloader", v)
-  }
-
 
   // ------------------------------------------------------------- live
   live: engine.running

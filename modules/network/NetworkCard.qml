@@ -5,7 +5,7 @@ import "../../DeskStyle.js" as DS
 import "../../fonts"
 
 // Network card on the desktop: what you're connected through, the speed
-// with a minute of history, latency and whether a tunnel is up.
+// with a minute of history and latency.
 Rectangle {
   id: c
   property var mod: null
@@ -70,11 +70,6 @@ Rectangle {
         visible: !!(c.mod && c.mod.latency.ms)
         text: "\u{f04c5} " + (c.mod && c.mod.latency.ms ? c.mod.latency.ms + c.mod.t(" мс", " ms") : "")
         color: Qt.darker(c.fg, 1.3); font.family: c.ff; font.pixelSize: Style.font.caption - 1
-      }
-      Text {
-        visible: !!(c.mod && c.mod.activeTunnels.length)
-        text: "\u{f099d} " + (c.mod ? c.mod.t("туннель", "tunnel") : "")
-        color: c.accent; font.family: c.ff; font.pixelSize: Style.font.caption - 1
       }
     }
   }

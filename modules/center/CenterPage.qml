@@ -10,7 +10,7 @@ import "../../fonts"
 
 // Centre as a control centre (after macOS and GNOME): big tiles for the
 // network and Bluetooth, small ones for switches, sliders for sound, the
-// microphone and brightness, the track, tools, and the notifications folded
+// microphone and brightness, tools, and the notifications folded
 // at the bottom. A tile's › opens its short list right below the row
 // (connect a network or a device, pick an output) — the full pages stay in
 // Settings. Everything comes from the modules that own it.
@@ -33,16 +33,17 @@ Row {
   readonly property var notif: mod ? mod.notif : null
   readonly property real gap: Style.space(8)
   property string open: ""                        // the tile whose list is shown (left column)
+  // the Wi-Fi list is on screen: let NetworkManager scan (live list)
+  Binding { target: page.nw; property: "wantScan"; value: page.open === "net" && page.visible; when: page.nw !== null }
   property bool notifOpen: false
   property bool timerOpen: false
   function toggleOpen(id) { open = open === id ? "" : id }
 
   // fresh states while the centre is on screen
   Timer {
-    interval: 4000; repeat: true; triggeredOnStart: true; running: page.visible
+    interval: 10000; repeat: true; triggeredOnStart: true; running: page.visible
     onTriggered: {
-      if (page.nw && page.nw.active) { page.nw.cmd(["status"]); if (page.open === "net") page.nw.refresh() }
-      if (page.dv && page.dv.active) page.dv.cmd(["status"])
+      if (page.nw && page.nw.active) page.nw.cmd(["status"])
     }
   }
   Component.onCompleted: if (dm && dm.active) dm.refresh()
@@ -192,13 +193,12 @@ Row {
 
   // ---------------------------------------------------- network + bluetooth
   readonly property var sys: mod ? mod.sys : ({})
-  readonly property bool hasWifi: sys.wifi === "enabled" || sys.wifi === "disabled"
+  readonly property bool hasWifi: mod.wifiState === "enabled" || mod.wifiState === "disabled"
   readonly property var btDevices: dv && dv.st.devices ? dv.st.devices.filter(function(d) { return d.paired }) : []
   readonly property var btConnected: btDevices.filter(function(d) { return d.connected })
 
   // ------------------------------------------------------------ switches
   readonly property var hph: m("headphones")
-  readonly property var tunnel: nw && nw.activeTunnels.length ? nw.activeTunnels[0] : null
 
   // ------------------------------------------------------------- sliders
   // the physical sink behind SoundHub's EQ carries the volume
@@ -285,29 +285,30 @@ Row {
     spacing: page.gap
     BigTile {
       glyph: page.nw ? page.nw.glyph : "\u{f0200}"
-      label: page.nw && page.nw.onWifi || page.sys.wifi === "enabled" ? "Wi-Fi" : page.t("Сеть", "Network")
-      sub: page.nw ? page.nw.name + (page.tunnel ? " · " + page.t("туннель", "tunnel") : "") : ""
+      label: page.nw && page.nw.onWifi || page.mod.wifiState === "enabled" ? "Wi-Fi" : page.t("Сеть", "Network")
+      sub: page.nw ? page.nw.name : ""
       on: page.nw ? page.nw.online : false
       listId: "net"
-      onToggled: if (page.hasWifi) page.mod.toggle("wifi"); else page.toggleOpen("net")
+      // the circle only switches Wi-Fi off; on a cable it just opens the list
+      onToggled: if (page.mod.wifiState === "enabled") page.mod.toggle("wifi"); else page.toggleOpen("net")
     }
     BigTile {
-      glyph: page.sys.bt ? "\u{f00af}" : "\u{f00b2}"
+      glyph: page.mod.btOn ? "\u{f00af}" : "\u{f00b2}"
       label: "Bluetooth"
-      sub: !page.sys.bt ? page.t("Выключен", "Off") : page.btConnected.length
+      sub: !page.mod.btOn ? page.t("Выключен", "Off") : page.btConnected.length
            ? page.btConnected.map(function(d) { return d.name + (d.battery !== null && d.battery !== undefined ? " " + d.battery + "%" : "") }).join(", ")
            : page.t("Нет подключений", "Not connected")
-      on: !!page.sys.bt
+      on: !!page.mod.btOn
       listId: "bt"
       onToggled: page.mod.toggle("bt")
     }
   }
   ListBox {
     visible: page.open === "net"
-    title: page.hasWifi && page.sys.wifi === "enabled" ? page.t("Сети Wi-Fi", "Wi-Fi networks") : page.t("Подключения", "Connections")
+    title: page.hasWifi && page.mod.wifiState === "enabled" ? page.t("Сети Wi-Fi", "Wi-Fi networks") : page.t("Подключения", "Connections")
     settingsId: "network"
     Repeater {
-      model: page.nw && page.hasWifi && page.sys.wifi === "enabled" ? page.nw.networks.slice(0, 8) : []
+      model: page.nw && page.hasWifi && page.mod.wifiState === "enabled" ? page.nw.networks.slice(0, 8) : []
       delegate: ListRow {
         required property var modelData
         glyph: page.nw.wifiGlyph(modelData.signal)
@@ -320,25 +321,15 @@ Row {
       }
     }
     Repeater {
-      model: page.nw ? page.nw.saved.filter(function(s) { return s.type === "ethernet" || (s.type === "wifi" && !(page.hasWifi && page.sys.wifi === "enabled")) || s.active }).slice(0, 6) : []
+      model: page.nw ? page.nw.saved.filter(function(s) { return s.type === "ethernet" || (s.type === "wifi" && !(page.hasWifi && page.mod.wifiState === "enabled")) || s.active }).slice(0, 6) : []
       delegate: ListRow {
         required property var modelData
-        visible: !(page.hasWifi && page.sys.wifi === "enabled" && modelData.type === "wifi")
+        visible: !(page.hasWifi && page.mod.wifiState === "enabled" && modelData.type === "wifi")
         glyph: modelData.type === "wifi" ? "\u{f05a9}" : modelData.type === "ethernet" ? "\u{f0200}" : "\u{f00af}"
         label: modelData.name
         sub: modelData.active ? page.t("подключено", "connected") : ""
         on: modelData.active
         onClicked: if (!modelData.active) page.nw.connect(modelData.name)
-      }
-    }
-    Repeater {
-      model: page.nw ? page.nw.activeTunnels : []
-      delegate: ListRow {
-        required property var modelData
-        glyph: "\u{f0582}"
-        label: modelData.name || modelData.device || page.t("Туннель", "Tunnel")
-        sub: page.t("туннель", "tunnel")
-        on: true
       }
     }
   }
@@ -504,15 +495,6 @@ Row {
     id: rightCol
     width: page.colW
     spacing: Style.space(10)
-  // --------------------------------------------------------------- music
-  Rectangle {
-    visible: mini.hasTrack
-    width: page.colW
-    height: mini.implicitHeight + Style.space(20)
-    radius: Style.space(16)
-    color: SH.HubStyle.tint(page.fg, 0.06)
-    SH.MiniPlayer { id: mini; x: Style.space(10); y: Style.space(10); width: parent.width - Style.space(20); host: page.snd; forceLook: "cover" }
-  }
   Flow {
     width: page.colW
     spacing: page.gap

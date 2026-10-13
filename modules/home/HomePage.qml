@@ -204,7 +204,7 @@ Item {
           source: mCard.player ? (mCard.player.trackArtUrl || "") : ""
           fillMode: Image.PreserveAspectCrop
           asynchronous: true
-          RotationAnimator on rotation { from: 0; to: 360; duration: 20000; loops: Animation.Infinite; running: mCard.playing }
+          RotationAnimator on rotation { from: 0; to: 360; duration: 20000; loops: Animation.Infinite; running: mCard.playing && mCard.visible }
         }
         Text { anchors.centerIn: parent; visible: art.status !== Image.Ready; text: "󰝚"; color: page.accent; font.family: page.ff; font.pixelSize: Style.space(44) }
       }

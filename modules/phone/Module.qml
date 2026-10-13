@@ -14,12 +14,12 @@ NotchModule {
   id: ph
   readonly property bool ru: notch !== null && notch.lang === "ru"
   function t(a, b) { return ru ? a : b }
-  title: t("Телефон", "Phone")
+  title: "KDE Connect"
   icon: "\u{f011c}"
   description: t("Телефон через KDE Connect: батарея, файлы, буфер, поиск", "The phone over KDE Connect: battery, files, clipboard, find it")
   inRail: false
-  settingsSection: "bluetooth"
-  sectionOrder: 5
+  settingsSection: "tools"
+  sectionOrder: 3
   settingsPage: Component { PhoneSettings { mod: ph } }
 
   readonly property string bin: decodeURIComponent(Qt.resolvedUrl("bin/phonectl").toString().replace(/^file:\/\//, ""))
@@ -51,7 +51,7 @@ NotchModule {
     proc.command = [bin].concat(proc.args); proc.running = true
   }
   function cmd(args) { queue = queue.concat([args]); next() }
-  readonly property bool watching: active && notch !== null && notch.settingsOpen && notch.settingsSection === "bluetooth"
+  readonly property bool watching: active && notch !== null && notch.settingsOpen && notch.settingsSection === "tools"
   Timer { interval: ph.watching ? 8000 : 60000; repeat: true; triggeredOnStart: true; running: ph.active; onTriggered: ph.cmd(["state"]) }
 
   // a file to the phone: the system file chooser, then kcd share

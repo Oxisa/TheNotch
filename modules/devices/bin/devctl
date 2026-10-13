@@ -119,16 +119,17 @@ def cameras():
     return [c for c in res if c["devices"]]
 
 
-def status():
-    bt = bt_devices()
-    return out({"ok": True, "bt": bt_state(), "devices": bt, "batteries": batteries(bt), "printers": printers(), "cameras": cameras()})
+def status(with_bt=True):
+    # TheNotch reads Bluetooth live from BlueZ and asks with --no-bt (fast)
+    bt = bt_devices() if with_bt else []
+    return out({"ok": True, "bt": bt_state() if with_bt else {}, "devices": bt, "batteries": batteries(bt), "printers": printers(), "cameras": cameras()})
 
 
 def main():
     a = sys.argv[1:]
     c = a[0] if a else "status"
     if c == "status":
-        return status()
+        return status("--no-bt" not in a)
     if c == "bt" and len(a) > 1:
         if a[1] == "power" and len(a) > 2:
             if a[2] == "on":

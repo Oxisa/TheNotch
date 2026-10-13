@@ -26,7 +26,8 @@ Item {
   // Services that used to be separate plugins, now part of TheNotch:
   // the notification daemon (DND, history; the notch draws the pop-ups)
   // and video wallpapers (vendor/, see vendor/README.md).
-  Notif.NotificationService { shell: null }
+  Notif.NotificationService { id: notifDaemon; shell: null }
+  readonly property var notifications: notifDaemon
   Live.LiveWallpaper {}
 
 

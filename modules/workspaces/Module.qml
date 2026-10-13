@@ -38,7 +38,11 @@ NotchModule {
   function windowsOn(ws) { return ws && ws.toplevels ? ws.toplevels.values : [] }
   // live geometry comes from Hyprland's last answer; ask again while shown
   property int watchers: 0
-  Timer { interval: 1000; repeat: true; triggeredOnStart: true; running: wm.watchers > 0; onTriggered: Hyprland.refreshToplevels() }
+  // re-read on Hyprland's events (and once in a while), not every second:
+  // polling leaked memory in Quickshell's IPC objects
+  Timer { interval: 5000; repeat: true; triggeredOnStart: true; running: wm.watchers > 0; onTriggered: Hyprland.refreshToplevels() }
+  Connections { target: Hyprland; enabled: wm.watchers > 0; function onRawEvent(ev) { if (/^(openwindow|closewindow|movewindow|changefloatingmode|fullscreen|workspace)/.test(ev.name)) wsRefresh.restart() } }
+  Timer { id: wsRefresh; interval: 200; onTriggered: Hyprland.refreshToplevels() }
 
   // names (and icons) per workspace id, from the settings
   readonly property var names: opt("names", ({}))

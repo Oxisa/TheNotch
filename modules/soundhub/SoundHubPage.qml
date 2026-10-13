@@ -16,6 +16,7 @@ Column {
     { icon: "󰝚", key: "tab.playing", file: "NowPlaying.qml" },
     { icon: "󰺢", key: "tab.eq", file: "EqPage.qml" },
     { icon: "󱅻", key: "tab.focus", file: "FocusPage.qml" },
+    { icon: "\u{f075a}", key: "tab.ambient", url: "../soundparts/AmbientPage.qml" },
     { icon: "\u{f036c}", key: "tab.mic", file: "MicPage.qml" }
   ]
   readonly property color fg: host ? host.fg : "white"
@@ -58,7 +59,7 @@ Column {
           Text {
             visible: tabItem.current && strip.tabW > Style.space(110)
             anchors.verticalCenter: parent.verticalCenter
-            text: root.host ? root.host.t(tabItem.modelData.key) : ""
+            text: root.host ? root.host.tabName(tabItem.modelData.key) : ""
             color: Color.background
             font.family: root.host ? root.host.ff : ""; font.pixelSize: Style.font.body; font.bold: true
           }
@@ -70,7 +71,7 @@ Column {
           cursorShape: Qt.PointingHandCursor
           onClicked: if (root.host) root.host.tab = tabItem.index
         }
-        PanelToolTip { visible: !tabItem.current && tabMouse.containsMouse; text: root.host ? root.host.t(tabItem.modelData.key) : "" }
+        PanelToolTip { visible: !tabItem.current && tabMouse.containsMouse; text: root.host ? root.host.tabName(tabItem.modelData.key) : "" }
       }
     }
   }
@@ -96,7 +97,7 @@ Column {
         opacity: shown ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: 200 } }
         active: visited
-        source: Qt.resolvedUrl("../../vendor/soundhub/" + modelData.file)
+        source: modelData.url ? Qt.resolvedUrl(modelData.url) : Qt.resolvedUrl("../../vendor/soundhub/" + modelData.file)
         onLoaded: item.host = root.host
       }
     }

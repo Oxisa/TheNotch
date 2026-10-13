@@ -115,7 +115,7 @@ Rectangle {
               transform: Rotation { origin.x: Style.space(1.5); origin.y: hub.height / 2 - Style.space(2); angle: index * 120 }
             }
           }
-          RotationAnimator on rotation { from: 0; to: 360; duration: 2400; loops: Animation.Infinite; running: k.playing }
+          RotationAnimator on rotation { from: 0; to: 360; duration: 2400; loops: Animation.Infinite; running: k.playing && k.visible }
         }
       }
       Reel { anchors.verticalCenter: parent.verticalCenter; x: Style.space(18); amount: 1 - k.progress }

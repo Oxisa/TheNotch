@@ -20,8 +20,10 @@ Column {
   readonly property var p: mod ? mod.primary : null
   SettingsTabs {
     id: tabs
-    tabs: [{ id: "conn", label: page.t("Подключение", "Connection"), icon: "\u{f059f}" }, { id: "wifi", label: "Wi-Fi", icon: "\u{f0928}" },
-           { id: "wired", label: page.t("Кабель", "Wired"), icon: "\u{f0200}" }]
+    // the Wi-Fi tab only while Wi-Fi is on
+    tabs: [{ id: "conn", label: page.t("Подключение", "Connection"), icon: "\u{f059f}" }]
+          .concat(page.mod && page.mod.wifiOn ? [{ id: "wifi", label: "Wi-Fi", icon: "\u{f0928}" }] : [])
+          .concat([{ id: "wired", label: page.t("Кабель", "Wired"), icon: "\u{f0200}" }])
           .concat([{ id: "traffic", label: page.t("Трафик", "Traffic"), icon: "\u{f046a}" }, { id: "more", label: page.t("Подробно", "Details"), icon: "\u{f02fd}" }])
   }
   readonly property string tab: tabs.current
@@ -101,38 +103,30 @@ Column {
     }
   }
 
-  // ------------------------------------------------------- tunnels
+  // Wi-Fi switched off: the switch lives here (the Wi-Fi tab shows once it's on)
   Card {
-    visible: (page.tab === "conn") && (page.mod && page.mod.st.tunnels && page.mod.st.tunnels.length > 0)
-    SH.HubCaption { text: page.t("Туннели", "Tunnels"); icon: "\u{f099d}"; fg: page.fg; fontFamily: page.ff }
-    Repeater {
-      model: page.mod ? page.mod.st.tunnels : []
-      delegate: SH.HubRow {
-        required property var modelData
-        title: modelData.name === modelData.device ? modelData.device : modelData.name + " · " + modelData.device
-        hint: page.t("Управляется своим приложением", "Managed by its own app")
-        fg: page.fg; fontFamily: page.ff
-        Text {
-          text: modelData.up ? "● " + page.t("активен", "active") : "○ " + page.t("выключен", "off")
-          color: modelData.up ? page.accent : Qt.darker(page.fg, 1.6)
-          font.family: page.ff; font.pixelSize: Style.font.caption; font.bold: true
-        }
-      }
+    visible: page.tab === "conn" && !!(page.mod && page.mod.st.hasWifi) && !page.mod.wifiOn
+    SH.HubRow {
+      width: parent.width
+      icon: "\u{f05aa}"
+      title: "Wi-Fi"; hint: page.t("Выключен — включите, чтобы увидеть сети", "Off — turn it on to see networks")
+      fg: page.fg; fontFamily: page.ff
+      SH.HubSwitch { checked: false; fg: page.fg; accent: page.accent; ink: page.bgc; onToggled: page.mod.setRadio(true) }
     }
   }
 
   // ---------------------------------------------------------- Wi-Fi
   Card {
-    visible: (page.tab === "wifi") && (page.mod && page.mod.st.hasWifi)
+    visible: page.tab === "wifi" && !!(page.mod && page.mod.st.hasWifi)
     SH.HubRow {
       title: "Wi-Fi"
-      hint: page.mod && page.mod.st.wifiRadio ? (page.mod.onWifi ? page.t("Подключено к ", "Connected to ") + page.mod.name : page.t("Включён", "On"))
+      hint: page.mod && page.mod.wifiOn ? (page.mod.onWifi ? page.t("Подключено к ", "Connected to ") + page.mod.name : page.t("Включён", "On"))
                                               : page.t("Выключен", "Off")
       fg: page.fg; fontFamily: page.ff
       Row {
         spacing: Style.space(8)
         SH.HubChip {
-          visible: page.mod && page.mod.st.wifiRadio
+          visible: page.mod && page.mod.wifiOn
           anchors.verticalCenter: parent.verticalCenter
           iconOnly: true
           icon: page.mod && page.mod.busy === "wifi" ? "\u{f051f}" : "\u{f0450}"
@@ -142,14 +136,14 @@ Column {
         }
         SH.HubSwitch {
           anchors.verticalCenter: parent.verticalCenter
-          checked: page.mod ? page.mod.st.wifiRadio : false
+          checked: page.mod ? page.mod.wifiOn : false
           fg: page.fg; accent: page.accent; ink: page.bgc
           onToggled: page.mod.setRadio(!checked)
         }
       }
     }
     Repeater {
-      model: page.mod && page.mod.st.wifiRadio ? page.mod.networks : []
+      model: page.mod && page.mod.wifiOn ? page.mod.networks : []
       delegate: Rectangle {
         id: net
         required property var modelData
@@ -246,7 +240,7 @@ Column {
       }
     }
     Text {
-      visible: page.mod && page.mod.st.wifiRadio && page.mod.networks.length === 0
+      visible: page.mod && page.mod.wifiOn && page.mod.networks.length === 0
       text: page.t("Сетей не найдено. Нажмите «Обновить».", "No networks found. Press Rescan.")
       color: Qt.darker(page.fg, 1.6); font.family: page.ff; font.pixelSize: Style.font.caption
     }

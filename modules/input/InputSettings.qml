@@ -210,7 +210,9 @@ Column {
 
   // ---------------------------------------------------------------- cursor
   readonly property var cur: mod ? mod.cursors.current || ({}) : ({})
-  readonly property string curMode: cur.theme === "Omarchy-Accent" ? "plugin" : (cur.theme === "Adwaita" || cur.theme === "default" || !cur.theme) ? "standard" : "own"
+  readonly property string curMode: cur.theme === "TheNotch-Accent" ? "accent" : (cur.theme === "Adwaita" || cur.theme === "default" || !cur.theme) ? "standard" : "own"
+  readonly property var acc: cur.accent || ({ base: "TheNotch", colour: "theme", variant: "fill" })
+  function accentCmd(base, colour, variant) { mod.cursorCmd(["accent", base || acc.base || "TheNotch", colour || acc.colour || "theme", variant || acc.variant || "fill"]) }
   Card {
     visible: page.tab === "cursor"
     SH.HubRow {
@@ -223,7 +225,7 @@ Column {
       spacing: Style.space(6)
       Repeater {
         model: [{ id: "standard", label: page.t("Стандартный", "Standard"), theme: "Adwaita" },
-                { id: "plugin", label: page.t("Плагин Cursor Accent", "Cursor Accent plugin"), theme: "Omarchy-Accent" },
+                { id: "accent", label: page.t("В цвет темы", "Theme colour"), theme: "TheNotch-Accent" },
                 { id: "own", label: page.t("Свой", "Your own"), theme: "" }]
         delegate: SH.HubChip {
           required property var modelData
@@ -235,17 +237,79 @@ Column {
         }
       }
     }
-    Text {
-      visible: page.curMode === "plugin"
-      width: parent.width; wrapMode: Text.Wrap
-      text: page.t("Cursor Accent перекрашивает курсор под цвет темы. Выбор другой темы выключит плагин, «Плагин» — включит обратно.",
-                   "Cursor Accent recolours the pointer to the theme. Picking another theme switches the plugin off; “Plugin” switches it back on.")
-      color: Qt.darker(page.fg, 1.5); font.family: page.ff; font.pixelSize: Style.font.caption - 1
+    // in the theme's colour: an installed theme recoloured (cursorctl accent)
+    SH.HubRow {
+      visible: page.curMode === "accent"
+      title: page.t("Основа", "Base"); hint: page.t("Какую тему перекрашивать", "Which theme to recolour")
+      fg: page.fg; fontFamily: page.ff
+      SH.HubSelect {
+        width: Style.space(200); showLabel: false
+        options: (page.mod ? page.mod.cursors.themes || [] : []).filter(function(t) { return t.kind !== "accent" && t.name !== "Omarchy-Accent" })
+                 .map(function(t) { return { value: t.name, label: t.kind === "ours" ? page.t("TheNotch (скруглённый)", "TheNotch (rounded)") : t.name } })
+        value: page.acc.base || "TheNotch"
+        foreground: page.fg; accent: page.accent; background: page.bgc; fontFamily: page.ff
+        onChanged: function(v) { page.accentCmd(v, "", "") }
+      }
+    }
+    SH.HubRow {
+      visible: page.curMode === "accent"
+      title: page.t("Цвет", "Colour"); hint: page.t("Акцент темы меняется вместе с темой", "The theme's accent follows theme changes")
+      fg: page.fg; fontFamily: page.ff
+      Row {
+        spacing: Style.space(6)
+        SH.HubChip {
+          label: page.t("Акцент темы", "Theme accent"); on: (page.acc.colour || "theme") === "theme"; subtle: true
+          fg: page.fg; accent: page.accent; fontFamily: page.ff
+          onClicked: page.accentCmd("", "theme", "")
+        }
+        Rectangle { anchors.verticalCenter: parent.verticalCenter; width: Style.space(20); height: width; radius: width / 2
+                    color: (page.acc.colour || "theme") === "theme" ? (page.cur.themeAccent || page.accent) : page.acc.colour; border.width: 1; border.color: SH.HubStyle.tint(page.fg, 0.3) }
+        SH.HubField {
+          width: Style.space(110); placeholderText: "#rrggbb"
+          text: (page.acc.colour || "theme") === "theme" ? "" : page.acc.colour
+          fg: page.fg; accent: page.accent; fontFamily: page.ff
+          onAccepted: if (/^#[0-9a-fA-F]{6}$/.test(text.trim())) page.accentCmd("", text.trim(), "")
+        }
+      }
+    }
+    // what gets the colour
+    SH.HubRow {
+      visible: page.curMode === "accent"
+      title: page.t("Раскраска", "Style"); hint: page.t("Что красится в цвет", "What takes the colour")
+      fg: page.fg; fontFamily: page.ff
+      Row {
+        spacing: Style.space(4)
+        Repeater {
+          model: [{ v: "fill", l: page.t("Заливка", "Fill") }, { v: "tone", l: page.t("Тон", "Tone") },
+                  { v: "outline", l: page.t("Контур", "Outline") }, { v: "light", l: page.t("Светлый", "Light") }]
+          delegate: SH.HubChip {
+            required property var modelData
+            label: modelData.l; on: (page.acc.variant || "fill") === modelData.v; subtle: true
+            fg: page.fg; accent: page.accent; fontFamily: page.ff
+            onClicked: page.accentCmd("", "", modelData.v)
+          }
+        }
+      }
     }
     SH.HubRow {
       title: page.t("Размер", "Size"); fg: page.fg; fontFamily: page.ff
+      Row {
+        spacing: Style.space(4)
+        Repeater {
+          model: [{ s: 24, l: "S" }, { s: 32, l: "M" }, { s: 40, l: "L" }, { s: 48, l: "XL" }, { s: 64, l: "XXL" }]
+          delegate: SH.HubChip {
+            required property var modelData
+            label: modelData.l; on: Number(page.cur.size || 24) === modelData.s; subtle: true
+            fg: page.fg; accent: page.accent; fontFamily: page.ff
+            onClicked: page.mod.cursorCmd(["apply", page.cur.theme || "Adwaita", String(modelData.s)])
+          }
+        }
+      }
+    }
+    SH.HubRow {
+      title: page.t("Точнее", "Fine-tune"); fg: page.fg; fontFamily: page.ff
       SH.HubSlider {
-        width: Style.space(200); minimum: 16; maximum: 96; step: 4
+        width: Style.space(200); minimum: 16; maximum: 96; step: 8
         value: Number(page.cur.size || 24)
         format: function(v) { return Math.round(v) + " px" }
         fillColor: page.accent; fontFamily: page.ff
@@ -266,7 +330,7 @@ Column {
       width: parent.width
       spacing: Style.space(8)
       Repeater {
-        model: page.mod ? page.mod.cursors.themes || [] : []
+        model: page.mod ? (page.mod.cursors.themes || []).filter(function(t) { return t.kind !== "accent" && t.name !== "Omarchy-Accent" }) : []
         delegate: Rectangle {
           id: ct
           required property var modelData
@@ -289,7 +353,7 @@ Column {
             Text { anchors.horizontalCenter: parent.horizontalCenter; width: ct.width - Style.space(10); horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight
                    text: ct.modelData.name; color: page.fg; font.family: page.ff; font.pixelSize: Style.font.caption - 1; font.bold: ct.on }
             Text { anchors.horizontalCenter: parent.horizontalCenter
-                   text: ({ system: page.t("системная", "system"), user: page.t("ваша", "yours"), plugin: page.t("плагин", "plugin"), imported: page.t("из архива", "from a zip") })[ct.modelData.kind] || ""
+                   text: ({ system: page.t("системная", "system"), user: page.t("ваша", "yours"), ours: page.t("встроенная", "built-in"), imported: page.t("из архива", "from a zip") })[ct.modelData.kind] || ""
                    color: Qt.darker(page.fg, 1.6); font.family: page.ff; font.pixelSize: Style.font.caption - 3 }
           }
           MouseArea { id: ctm; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor

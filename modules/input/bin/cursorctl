@@ -13,6 +13,15 @@ Windows cursor pack (.zip with .ani/.cur files) as an Xcursor theme.
                           pixel art is enlarged without blurring)
   delete NAME             remove a theme you imported
   downloads               cursor packs (.zip with .ani/.cur) in ~/Downloads not imported yet
+  accent [BASE] [COLOR] [VARIANT]
+                          "in the theme's colour": recolour a theme (TheNotch's
+                          own rounded set by default) into TheNotch-Accent —
+                          VARIANT fill | tone | outline | light says what gets
+                          COLOR (the Omarchy theme's accent when "theme") —
+                          and apply it; a theme-set hook rebuilds it on every
+                          theme change
+  reimport                rebuild imported packs in every size
+  accent-refresh          rebuild for the current theme (the hook runs this)
 
 Packs are converted for your own use on this computer; many authors forbid
 re-sharing them. Every command prints one JSON object.
@@ -28,7 +37,16 @@ STATE = HOME / ".config/thenotch/cursor.json"
 LOOK = HOME / ".config/hypr/looknfeel.lua"
 HOOK = HOME / ".config/omarchy/hooks/post-boot.d/thenotch-cursor"
 BEGIN, END = "-- BEGIN thenotch-cursor", "-- END thenotch-cursor"
-ACCENT = "Omarchy-Accent"
+ACCENT = "TheNotch-Accent"
+# every size a theme is built in: the pointer follows the size slider in even
+# steps (a pack with one or two sizes would jump or not change at all)
+SIZES = (16, 24, 32, 40, 48, 56, 64, 80, 96)
+OURS = "TheNotch"
+ACCENT_HOOK = HOME / ".config/omarchy/hooks/theme-set.d/thenotch-cursor-accent"
+# the hook calls this script through the installed plugin, wherever it was run from
+_INSTALLED = HOME / ".config/omarchy/plugins/osia.thenotch/modules/input/bin/cursorctl"
+SELF = _INSTALLED if _INSTALLED.exists() else Path(__file__).resolve()
+COLORS = HOME / ".local/state/omarchy/current/theme/colors.toml"
 
 # Windows roles → the Xcursor names apps ask for
 ROLES = {
@@ -94,6 +112,247 @@ def write_xcursor(path, images):
         body += chunk
         pos += len(chunk)
     path.write_bytes(head + toc + body)
+
+
+def read_xcursor_all(path):
+    """Every image (all sizes, all frames): [(size, w, h, xhot, yhot, delay, argb)]."""
+    d = path.read_bytes()
+    if d[:4] != b"Xcur":
+        return []
+    ntoc = struct.unpack("<I", d[12:16])[0]
+    res = []
+    for i in range(ntoc):
+        typ, sub, pos = struct.unpack("<III", d[16 + 12 * i:28 + 12 * i])
+        if typ != 0xFFFD0002:
+            continue
+        _, _, size, _, w, h, xh, yh, delay = struct.unpack("<IIIIIIIII", d[pos:pos + 36])
+        res.append((size, w, h, xh, yh, delay, d[pos + 36:pos + 36 + w * h * 4]))
+    return res
+
+
+def theme_accent():
+    try:
+        m = re.search(r'^\s*accent\s*=\s*"(#[0-9a-fA-F]{6})"', COLORS.read_text(), re.M)
+        return m.group(1) if m else "#888888"
+    except OSError:
+        return "#888888"
+
+
+def mix(c1, c2, k):
+    a, b = [int(c1[i:i + 2], 16) for i in (1, 3, 5)], [int(c2[i:i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(x + (y - x) * k):02x}" for x, y in zip(a, b))
+
+
+# how the colour is laid on: (body, outline) of the pointer
+VARIANTS = {
+    "fill":    lambda c: (c, "#ffffff"),               # coloured, white edge
+    "tone":    lambda c: (c, mix(c, "#000000", 0.55)), # coloured, a darker edge of the same colour
+    "outline": lambda c: ("#16161a", c),               # dark, coloured edge
+    "light":   lambda c: ("#ffffff", c),               # white, coloured edge
+}
+
+
+def recolour(px, body, edge):
+    """Premultiplied BGRA: the theme's dark body → body, its light edge → edge
+    (in between: blended); the soft dark shadow stays as it is."""
+    b0 = [int(body[i:i + 2], 16) for i in (5, 3, 1)]
+    e0 = [int(edge[i:i + 2], 16) for i in (5, 3, 1)]
+    out = bytearray(px)
+    for i in range(0, len(px), 4):
+        a = px[i + 3]
+        if not a:
+            continue
+        b, g, r = px[i] * 255 // a, px[i + 1] * 255 // a, px[i + 2] * 255 // a
+        lum = (r * 299 + g * 587 + b * 114) // 1000          # 0 dark … 255 light
+        if a < 200 and lum < 96:                              # shadow
+            continue
+        for k in range(3):
+            out[i + k] = (b0[k] + (e0[k] - b0[k]) * lum // 255) * a // 255
+    return bytes(out)
+
+
+# ------------------------------------------------- our own pointer set
+# Drawn here (MIT, TheNotch's): the shapes in a 32×32 box, rounded like
+# Windows 11's — round joins, round ends. Body black, edge white, a soft
+# shadow; "in the theme's colour" recolours it like any other theme.
+ARROW = "M5,3.5 L5,24.5 L10.2,19.6 L13.6,27.4 L17.2,25.9 L13.9,18.3 L21,18.3 Z"
+DOUBLE = "M3.5,16 L9.5,10 L9.5,13.8 L22.5,13.8 L22.5,10 L28.5,16 L22.5,22 L22.5,18.2 L9.5,18.2 L9.5,22 Z"
+HAND = [("rect", 11.2, 2.6, 4.4, 15, 2.2), ("rect", 15.2, 10.2, 4, 9, 2), ("rect", 18.7, 11.2, 3.8, 8.5, 1.9),
+        ("rect", 21.9, 12.6, 3.4, 7.5, 1.7), ("rect", 9.5, 14.5, 15.8, 13.5, 5),
+        ("rot", 4.2, 15.4, 4, 9.5, 2, -38, 7, 19.5)]
+
+
+def shapes(name, frame=0, frames=1):
+    """→ ([primitives], (xhot, yhot)); a primitive is (kind, …)."""
+    spin = lambda cx, cy, r, w: [("arc", cx, cy, r, w, frame * 360 / frames)]
+    if name == "arrow":
+        return [("path", ARROW)], (5, 3.5)
+    if name == "hand":
+        return HAND, (13.4, 2.8)
+    if name == "text":
+        return [("rect", 10.5, 3.5, 11, 3, 1.5), ("rect", 14.6, 4, 2.8, 24, 1.4), ("rect", 10.5, 25.5, 11, 3, 1.5)], (16, 16)
+    if name == "cross":
+        return [("rect", 15, 3, 2, 26, 1), ("rect", 3, 15, 26, 2, 1)], (16, 16)
+    if name == "no":
+        return [("ring", 16, 16, 11, 3.2), ("rot", 14.4, 5.5, 3.2, 21, 1.6, -45, 16, 16)], (16, 16)
+    if name == "wait":
+        return spin(16, 16, 9, 4), (16, 16)
+    if name == "progress":
+        return [("path", ARROW)] + spin(23.5, 23.5, 4.6, 2.6), (5, 3.5)
+    if name == "help":
+        return [("path", ARROW), ("line", "M20.5,21.2 a3.6,3.6 0 1,1 4.6,3.4 v1.8", 2.6), ("dot", 25.1, 29.2, 1.5)], (5, 3.5)
+    if name == "move":
+        heads = [("rotp", "M16,2.8 L21.2,8.6 L10.8,8.6 Z", d) for d in (0, 90, 180, 270)]
+        return [("rect", 14.6, 7, 2.8, 18, 1.2), ("rect", 7, 14.6, 18, 2.8, 1.2)] + heads, (16, 16)
+    if name in ("ew", "ns", "nwse", "nesw"):
+        deg = {"ew": 0, "ns": 90, "nwse": 45, "nesw": -45}[name]
+        return [("rotp", DOUBLE, deg)], (16, 16)
+    return [], (0, 0)
+
+
+def svg(prims, layer, body="#000", edge="#fff", ew=1.6):
+    """layer: "edge" — every shape grown by ew in the edge colour; "body" — the
+    shapes themselves; "shadow" — the edge shape, soft and dark."""
+    col = edge if layer == "edge" else body if layer == "body" else "#000"
+    grow = layer != "body"
+    st = f' stroke="{col}" stroke-width="{2 * ew}" stroke-linejoin="round" stroke-linecap="round"' if grow else ""
+    out = []
+    for p in prims:
+        k = p[0]
+        if k == "path":
+            out.append(f'<path d="{p[1]}" fill="{col}"{st}/>')
+        elif k == "rotp":
+            out.append(f'<path d="{p[1]}" fill="{col}"{st} transform="rotate({p[2]} 16 16)"/>')
+        elif k == "rect":
+            _, x, y, w, h, rx = p
+            out.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{rx}" fill="{col}"{st}/>')
+        elif k == "rot":
+            _, x, y, w, h, rx, deg, cx, cy = p
+            out.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{rx}" fill="{col}"{st} transform="rotate({deg} {cx} {cy})"/>')
+        elif k == "ring":
+            _, cx, cy, rr, w = p
+            out.append(f'<circle cx="{cx}" cy="{cy}" r="{rr}" fill="none" stroke="{col}" stroke-width="{w + (2 * ew if grow else 0)}"/>')
+        elif k == "line":
+            _, d, w = p
+            out.append(f'<path d="{d}" fill="none" stroke="{col}" stroke-width="{w + (2 * ew if grow else 0)}" stroke-linecap="round" stroke-linejoin="round"/>')
+        elif k == "dot":
+            _, cx, cy, rr = p
+            out.append(f'<circle cx="{cx}" cy="{cy}" r="{rr + (ew if grow else 0)}" fill="{col}"/>')
+        elif k == "arc":                                   # three quarters of a ring, turning
+            _, cx, cy, rr, w, deg = p
+            out.append(f'<circle cx="{cx}" cy="{cy}" r="{rr}" fill="none" stroke="{col}" stroke-opacity="{0.35 if layer == "body" else 1}" stroke-width="{w + (2 * ew if grow else 0)}"/>')
+            if layer == "body":
+                out.append(f'<path d="M{cx},{cy - rr} A{rr},{rr} 0 1,1 {cx - rr},{cy}" fill="none" stroke="{col}" stroke-width="{w}" stroke-linecap="round" transform="rotate({deg} {cx} {cy})"/>')
+    g = "".join(out)
+    if layer == "shadow":
+        return f'<g opacity="0.35" filter="url(#s)" transform="translate(0.5 1)">{g}</g>'
+    return f"<g>{g}</g>"
+
+
+def render_ours(name, size, frame=0, frames=1):
+    prims, hot = shapes(name, frame, frames)
+    doc = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">'
+           '<defs><filter id="s" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="0.8"/></filter></defs>'
+           + svg(prims, "shadow") + svg(prims, "edge") + svg(prims, "body") + "</svg>")
+    r = subprocess.run(["rsvg-convert", "-w", str(size), "-h", str(size), "-f", "png"], input=doc.encode(), capture_output=True)
+    rgba = magick_rgba(r.stdout, "png")
+    return (size, size, size, round(hot[0] * size / 32), round(hot[1] * size / 32), 0, rgba_to_argb(rgba))
+
+
+OUR_SET = {  # our shape → the Xcursor names it serves (the rest come from Adwaita)
+    "arrow": ROLES["pointer"], "hand": ROLES["link"], "text": ROLES["text"], "cross": ROLES["precision"],
+    "no": ROLES["unavailable"], "wait": ROLES["busy"], "progress": ROLES["working"], "help": ROLES["help"],
+    "move": ROLES["move"], "ns": ROLES["vert"], "ew": ROLES["horz"] + ["col-resize"], "nwse": ROLES["dgn1"], "nesw": ROLES["dgn2"],
+}
+OURS_VERSION = "2"
+
+
+def build_ours():
+    """~/.local/share/icons/TheNotch — drawn once (again when the drawing changes)."""
+    dst = USER_ICONS / OURS
+    if (dst / ".thenotch-ours").exists() and (dst / ".thenotch-ours").read_text() == OURS_VERSION:
+        return
+    shutil.rmtree(dst, ignore_errors=True)
+    (dst / "cursors").mkdir(parents=True)
+    for shape, names in OUR_SET.items():
+        frames = 12 if shape in ("wait", "progress") else 1
+        imgs = []
+        for size in SIZES:
+            for f in range(frames):
+                im = render_ours(shape, size, f, frames)
+                imgs.append(im[:5] + (60 if frames > 1 else 0, im[6]))
+        write_xcursor(dst / "cursors" / names[0], imgs)
+        for alias in names[1:]:
+            (dst / "cursors" / alias).symlink_to(names[0])
+    (dst / "index.theme").write_text(f"[Icon Theme]\nName={OURS}\nComment=TheNotch's rounded pointers\nInherits=Adwaita\n")
+    (dst / ".thenotch-ours").write_text(OURS_VERSION)
+
+
+def theme_dir(name):
+    return next((d / name for d in DIRS if (d / name / "cursors").is_dir()), None)
+
+
+def build_accent(base, colour, variant="fill", max_size=128):
+    if base == OURS:
+        build_ours()
+    src = theme_dir(base)
+    if not src:
+        return f"no cursor theme {base}"
+    body, edge = VARIANTS.get(variant, VARIANTS["fill"])(colour)
+    dst = USER_ICONS / ACCENT
+    if dst.exists():
+        shutil.rmtree(dst)
+    (dst / "cursors").mkdir(parents=True)
+    cache = {}
+    # the theme's own cursors, then what it leaves to Adwaita — all in one colour
+    chain = [src] + ([theme_dir("Adwaita")] if base != "Adwaita" and theme_dir("Adwaita") else [])
+    for theme in chain:
+        for f in sorted((theme / "cursors").iterdir()):
+            target = dst / "cursors" / f.name
+            if target.exists() or target.is_symlink():
+                continue
+            if f.is_symlink() and theme is src:              # names that point at another cursor
+                os.symlink(os.readlink(f), target)
+                continue
+            real = f.resolve()
+            if real in cache:
+                shutil.copyfile(cache[real], target)
+                continue
+            imgs = [im for im in read_xcursor_all(real) if im[0] <= max_size] or read_xcursor_all(real)
+            if not imgs:
+                continue
+            write_xcursor(target, [im[:6] + (recolour(im[6], body, edge),) for im in imgs])
+            cache[real] = target
+    (dst / "index.theme").write_text(f"[Icon Theme]\nName={ACCENT}\nComment=TheNotch: {base} in {colour}\nInherits={base},Adwaita\n")
+    (dst / ".thenotch-accent").write_text(json.dumps({"base": base, "colour": colour, "variant": variant}))
+    return ""
+
+
+def accent_state():
+    try:
+        return json.loads(STATE.read_text()).get("accent") or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def accent(base=None, colour=None, size=None, variant=None):
+    st = accent_state()
+    base = base or st.get("base") or OURS
+    mode = colour or st.get("colour") or "theme"
+    variant = variant or st.get("variant") or "fill"
+    err = build_accent(base, theme_accent() if mode == "theme" else mode, variant)
+    if err:
+        return out({"ok": False, "error": err})
+    size = size or current()["size"]
+    r = run(["hyprctl", "setcursor", ACCENT, str(size)])
+    persist(ACCENT, size)
+    data = json.loads(STATE.read_text()); data["accent"] = {"base": base, "colour": mode, "variant": variant}; STATE.write_text(json.dumps(data))
+    run(["gsettings", "set", "org.gnome.desktop.interface", "cursor-theme", ACCENT])
+    # follow the Omarchy theme: rebuilt on every `omarchy theme set`
+    ACCENT_HOOK.parent.mkdir(parents=True, exist_ok=True)
+    ACCENT_HOOK.write_text(f"#!/bin/bash\n# TheNotch: the cursor in the theme's colour\n{json.dumps(str(SELF))} accent-refresh >/dev/null 2>&1 &\n")
+    ACCENT_HOOK.chmod(0o755)
+    return out({"ok": r.returncode == 0, "error": r.stderr.strip()})
 
 
 def rgba_to_argb(rgba):
@@ -199,7 +458,7 @@ def import_zip(zpath, name=None):
         images = []
         src = max(f[1] for f in frames)
         pixel = src <= 48                                   # small pixel art: enlarge without blur
-        for size in sorted({24, 32, 48, 64, src}):
+        for size in sorted(set(SIZES) | {src}):
             k = size / src
             for c, w, h, xh, yh, delay in frames:
                 rgba = magick_rgba(c, "cur", size if size != src else None, pixel)
@@ -257,6 +516,7 @@ def preview(theme_dir):
 
 
 def themes():
+    build_ours()
     seen, res = set(), []
     for base in DIRS:
         if not base.is_dir():
@@ -265,7 +525,7 @@ def themes():
             if d.name in seen or not ((d / "cursors").is_dir() or (d / "hyprcursors").is_dir()):
                 continue
             seen.add(d.name)
-            kind = "plugin" if d.name == ACCENT else "imported" if (d / ".thenotch-imported").exists() else "user" if base != DIRS[-1] else "system"
+            kind = "accent" if d.name == ACCENT else "ours" if d.name == OURS else "imported" if (d / ".thenotch-imported").exists() else "user" if base != DIRS[-1] else "system"
             res.append({"name": d.name, "kind": kind, "preview": preview(d), "path": str(d)})
     return res
 
@@ -277,10 +537,8 @@ def current():
         st = {}
     g = run(["gsettings", "get", "org.gnome.desktop.interface", "cursor-theme"]).stdout.strip().strip("'")
     s = run(["gsettings", "get", "org.gnome.desktop.interface", "cursor-size"]).stdout.strip()
-    accent_on = any(p.get("id") == "io.github.smoothpixels.cursor-accent" and p.get("enabled")
-                    for p in json.loads(run(["omarchy", "plugin", "list", "--json"]).stdout or "[]"))
-    return {"theme": st.get("theme") or (ACCENT if accent_on else g), "size": int(st.get("size") or (s if s.isdigit() else 24)),
-            "accentPlugin": accent_on}
+    return {"theme": st.get("theme") or g, "size": int(st.get("size") or (s if s.isdigit() else 24)),
+            "accent": dict({"base": OURS, "colour": "theme", "variant": "fill"}, **(st.get("accent") or {})), "themeAccent": theme_accent()}
 
 
 def persist(name, size):
@@ -308,17 +566,11 @@ def unpersist():
 
 
 def apply(name, size):
-    plug = "io.github.smoothpixels.cursor-accent"
     if name == ACCENT:
-        # the plugin keeps its own cursor up to date with the theme: hand over to it
-        unpersist()
-        run(["omarchy", "plugin", "enable", plug])
-        r = run(["hyprctl", "setcursor", name, str(size)])
-    else:
-        if current()["accentPlugin"]:
-            run(["omarchy", "plugin", "disable", plug])      # or it would put its cursor back
-        r = run(["hyprctl", "setcursor", name, str(size)])
-        persist(name, size)
+        return accent(size=size)
+    ACCENT_HOOK.unlink(missing_ok=True)                    # not following the theme any more
+    r = run(["hyprctl", "setcursor", name, str(size)])
+    persist(name, size)
     run(["gsettings", "set", "org.gnome.desktop.interface", "cursor-theme", name])
     run(["gsettings", "set", "org.gnome.desktop.interface", "cursor-size", str(size)])
     return out({"ok": r.returncode == 0, "error": r.stderr.strip()})
@@ -351,6 +603,25 @@ def main():
         return apply(a[1], int(a[2]) if len(a) > 2 else current()["size"])
     if c == "import" and len(a) > 1:
         return import_zip(a[1], a[2] if len(a) > 2 else None)
+    if c == "accent":             # accent [BASE] [COLOUR|theme] [VARIANT]
+        return accent(a[1] if len(a) > 1 else None, a[2] if len(a) > 2 else None, None, a[3] if len(a) > 3 else None)
+    if c == "reimport":           # rebuild imported packs in every size
+        done = []
+        for d in USER_ICONS.iterdir() if USER_ICONS.exists() else []:
+            z = d / ".thenotch-imported"
+            if z.exists() and Path(z.read_text()).exists():
+                with open(os.devnull, "w") as null:
+                    so, sys.stdout = sys.stdout, null
+                    try:
+                        import_zip(z.read_text(), d.name)
+                    finally:
+                        sys.stdout = so
+                done.append(d.name)
+        return out({"ok": True, "rebuilt": done})
+    if c == "accent-refresh":
+        if not accent_state() and json.loads(STATE.read_text() or "{}").get("theme") != ACCENT:
+            return out({"ok": True})
+        return accent()
     if c == "delete" and len(a) > 1:
         d = USER_ICONS / a[1]
         if (d / ".thenotch-imported").exists():

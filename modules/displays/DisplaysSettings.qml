@@ -40,8 +40,8 @@ Column {
   Text {
     visible: page.mod && !page.mod.hasBackend
     width: parent.width; wrapMode: Text.Wrap
-    text: page.t("Нужен плагин Display Settings (omarchy-display) — включите его в «Плагинах Omarchy».",
-                 "Needs the Display Settings plugin (omarchy-display) — turn it on in Omarchy plugins.")
+    text: page.t("Не найден встроенный бэкенд дисплеев (vendor/display) — переустановите TheNotch.",
+                 "The built-in display backend (vendor/display) is missing — reinstall TheNotch.")
     color: Color.urgent; font.family: page.ff; font.pixelSize: Style.font.caption
   }
 
@@ -50,7 +50,7 @@ Column {
     Item {
       id: map
       width: parent.width
-      height: Style.space(200)
+      height: Style.space(260)
       // the bounding box of all monitors in logical pixels → fit it in
       readonly property var box: {
         var x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9
@@ -63,6 +63,21 @@ Column {
       readonly property real k: Math.min((width - Style.space(20)) / box.w, (height - Style.space(20)) / box.h)
       readonly property real ox: (width - box.w * k) / 2
       readonly property real oy: (height - box.h * k) / 2
+      // the grid the monitors snap to (one line every page.grid logical px)
+      Canvas {
+        anchors.fill: parent
+        readonly property real step: page.grid * map.k
+        onStepChanged: requestPaint()
+        onWidthChanged: requestPaint()
+        onPaint: {
+          var c = getContext("2d"); c.reset()
+          if (step < 4) return
+          c.strokeStyle = Qt.rgba(page.fg.r, page.fg.g, page.fg.b, 0.07); c.lineWidth = 1
+          var x0 = map.ox - Math.ceil(map.ox / step) * step, y0 = map.oy - Math.ceil(map.oy / step) * step
+          for (var x = x0; x < width; x += step) { c.beginPath(); c.moveTo(Math.round(x) + 0.5, 0); c.lineTo(Math.round(x) + 0.5, height); c.stroke() }
+          for (var y = y0; y < height; y += step) { c.beginPath(); c.moveTo(0, Math.round(y) + 0.5); c.lineTo(width, Math.round(y) + 0.5); c.stroke() }
+        }
+      }
       Repeater {
         model: page.ds
         delegate: Rectangle {
@@ -95,31 +110,64 @@ Column {
       }
     }
     Text {
-      text: page.full ? page.t("Перетащите монитор — края прилипают к соседям", "Drag a monitor — edges stick to the neighbours")
+      text: page.full ? page.t("Перетащите монитор — он пристыкуется к краю соседа и прилипнет к сетке или выравниванию", "Drag a monitor — it docks onto a neighbour's edge and snaps to the grid or an alignment")
                           : page.t("Нажмите на монитор, чтобы настроить его", "Click a monitor to set it up")
       color: Qt.darker(page.fg, 1.6); font.family: page.ff; font.pixelSize: Style.font.caption - 1
     }
   }
-  // turn the dropped rectangle back into logical positions, snap, save
+  // Hyprland moves the pointer across only where two monitors share an
+  // edge: a dropped monitor always docks onto the nearest side of another
+  // one (never overlapping), slides along that side to an aligned spot
+  // (tops, bottoms, centres, ends) or else to the grid; a layout that leaves
+  // a monitor touching nothing is not applied.
+  readonly property int grid: 128                      // logical px per grid cell
+  function overlaps(a, b) { return a.x < b.x + b.w - 1 && b.x < a.x + a.w - 1 && a.y < b.y + b.h - 1 && b.y < a.y + a.h - 1 }
+  function touches(a, b) {
+    var near = function(p, q) { return Math.abs(p - q) <= 1 }           // fractional scales round
+    var h = (near(a.x + a.w, b.x) || near(b.x + b.w, a.x)) && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) >= grid - 1
+    var v = (near(a.y + a.h, b.y) || near(b.y + b.h, a.y)) && Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) >= grid - 1
+    return h || v
+  }
+  function slide(want, lo, hi, aligned) {
+    for (var i = 0; i < aligned.length; i++) if (aligned[i] >= lo && aligned[i] <= hi && Math.abs(want - aligned[i]) < grid / 2) return aligned[i]
+    return Math.max(lo, Math.min(hi, Math.round(want / grid) * grid))
+  }
   function place(item) {
-    var d = item.modelData, k = map.k
+    var d = item.modelData, k = map.k, l = logical(d)
     var nx = map.box.x + (item.x - map.ox) / k, ny = map.box.y + (item.y - map.oy) / k
-    var l = logical(d), snap = 60
-    for (var i = 0; i < ds.length; i++) {
-      var o = ds[i]
-      if (o.name === d.name) continue
-      var ol = logical(o)
-      var xs = [o.x - l.w, o.x + ol.w, o.x, o.x + ol.w - l.w], ys = [o.y - l.h, o.y + ol.h, o.y, o.y + ol.h - l.h]
-      for (var a = 0; a < xs.length; a++) if (Math.abs(nx - xs[a]) < snap) { nx = xs[a]; break }
-      for (var b = 0; b < ys.length; b++) if (Math.abs(ny - ys[b]) < snap) { ny = ys[b]; break }
+    var rects = ds.filter(function(o) { return o.name !== d.name }).map(function(o) { var ol = logical(o); return { name: o.name, x: o.x, y: o.y, w: ol.w, h: ol.h } })
+    var best = null, bestDist = 1e18, m = grid                // at least one grid cell of shared edge
+    // the others together: centring over a row of monitors is an alignment too
+    var ux0 = Math.min.apply(null, rects.map(function(q) { return q.x })), ux1 = Math.max.apply(null, rects.map(function(q) { return q.x + q.w }))
+    var uy0 = Math.min.apply(null, rects.map(function(q) { return q.y })), uy1 = Math.max.apply(null, rects.map(function(q) { return q.y + q.h }))
+    rects.forEach(function(o) {
+      var ys = [o.y, o.y + o.h - l.h, Math.round(o.y + (o.h - l.h) / 2), Math.round((uy0 + uy1 - l.h) / 2)]
+      var xs = [o.x, o.x + o.w - l.w, Math.round(o.x + (o.w - l.w) / 2), Math.round((ux0 + ux1 - l.w) / 2)]
+      var cands = [
+        { x: o.x - l.w, y: slide(ny, o.y - l.h + m, o.y + o.h - m, ys) },     // left of it
+        { x: o.x + o.w, y: slide(ny, o.y - l.h + m, o.y + o.h - m, ys) },     // right of it
+        { x: slide(nx, o.x - l.w + m, o.x + o.w - m, xs), y: o.y - l.h },     // above it
+        { x: slide(nx, o.x - l.w + m, o.x + o.w - m, xs), y: o.y + o.h }      // below it
+      ]
+      cands.forEach(function(c) {
+        var r = { x: c.x, y: c.y, w: l.w, h: l.h }
+        if (rects.some(function(q) { return page.overlaps(r, q) })) return
+        var dist = (c.x - nx) * (c.x - nx) + (c.y - ny) * (c.y - ny)
+        if (dist < bestDist) { bestDist = dist; best = c }
+      })
+    })
+    if (!best) return                                     // nowhere free: leave it where it was
+    // every monitor must still touch another one (connected), or it isn't applied
+    var all = rects.concat([{ name: d.name, x: best.x, y: best.y, w: l.w, h: l.h }])
+    var seen = [all[0]], queue = [all[0]]
+    while (queue.length) { var c = queue.shift(); all.forEach(function(q) { if (seen.indexOf(q) < 0 && page.touches(c, q)) { seen.push(q); queue.push(q) } }) }
+    if (seen.length < all.length) {
+      if (mod.notch) mod.notch.flash({ key: "displays", icon: "\u{f0379}", title: page.t("Так мониторы не встанут", "That layout won't work"), message: page.t("Каждый монитор должен касаться соседа краем — иначе курсор не перейдёт", "Each monitor must share an edge with another, or the pointer can't cross") })
+      return
     }
-    var layout = [], minX = 1e9, minY = 1e9
-    for (var j = 0; j < ds.length; j++) {
-      var p = ds[j].name === d.name ? { name: d.name, x: nx, y: ny } : { name: ds[j].name, x: ds[j].x, y: ds[j].y }
-      layout.push(p); minX = Math.min(minX, p.x); minY = Math.min(minY, p.y)
-    }
-    for (var m = 0; m < layout.length; m++) { layout[m].x = Math.round(layout[m].x - minX); layout[m].y = Math.round(layout[m].y - minY) }
-    mod.cmd(["arrange", JSON.stringify(layout)])
+    var minX = 1e9, minY = 1e9
+    all.forEach(function(q) { minX = Math.min(minX, q.x); minY = Math.min(minY, q.y) })
+    mod.cmd(["arrange", JSON.stringify(all.map(function(q) { return { name: q.name, x: Math.round(q.x - minX), y: Math.round(q.y - minY) } }))])
   }
 
   // ------------------------------------------------- the picked monitor

@@ -191,10 +191,12 @@ Item {
     }
   }
 
+  // TheNotch: only while a video plays (it's what the check stops), and
+  // every 2 s — a shell script every second otherwise ran all day for nothing
   Timer {
-    interval: 1000
+    interval: 2000
     repeat: true
-    running: true
+    running: root.videoPath !== ""
     onTriggered: {
       if (!changeCheckProc.running) changeCheckProc.running = true
     }

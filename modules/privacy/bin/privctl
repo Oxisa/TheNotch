@@ -1,9 +1,21 @@
 #!/usr/bin/env bash
 # Who is using the microphone and the camera right now, as JSON:
 #   {"mic":[{"app","bin","pid"}], "cam":[...]}
+#   privctl cam   only the processes holding /dev/video* (TheNotch runs this
+#                 when inotify sees a camera opened or closed; the microphone
+#                 and portal cameras it reads from PipeWire itself)
 # Microphone: a capture stream fed by a real source (not a speaker's monitor —
 # visualizers listen to those). Camera: a process holding /dev/video*, or a
 # PipeWire video capture stream (browsers through the portal).
+if [[ ${1:-} == cam ]]; then
+  for d in /dev/video*; do fuser "$d" 2>/dev/null; done | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -u |
+    while read -r pid; do
+      b=$(basename "$(readlink -f /proc/$pid/exe 2>/dev/null)")
+      [[ $b == pipewire || $b == wireplumber || -z $b ]] && continue
+      jq -cn --arg app "$b" --argjson pid "$pid" '{app:$app, bin:$app, pid:$pid}'
+    done | jq -sc '{cam: unique_by(.app)}'
+  exit 0
+fi
 dump=$(pw-dump 2>/dev/null)
 mic=$(jq -c '
   [.[] | select(.type=="PipeWire:Interface:Node")] as $n

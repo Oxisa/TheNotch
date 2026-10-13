@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Services.Pipewire
 import qs.Commons
 import "../.."
 
@@ -33,15 +34,50 @@ NotchModule {
   property var cam: []
   readonly property bool inUse: active && (mic.length > 0 || cam.length > 0)
   readonly property string bin: decodeURIComponent(Qt.resolvedUrl("bin/privctl").toString().replace(/^file:\/\//, ""))
-  Process {
-    id: proc
-    command: [pv.bin]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: { try { var d = JSON.parse(text); pv.update("mic", d.mic || []); pv.update("cam", d.cam || []); pv.primed = true } catch (e) {} }
-    }
+
+  // ---- the microphone and portal cameras: straight from PipeWire, by events
+  // (polling pw-dump every 2 s cost ~16 % of a core). A capture stream fed by
+  // a real source (not a speaker's monitor — visualizers listen to those).
+  readonly property var streams: Pipewire.nodes ? Pipewire.nodes.values.filter(function(n) { return n && n.isStream }) : []
+  PwObjectTracker { objects: pv.streams }
+  function appOf(n) {
+    var p = n.properties || {}
+    return { app: String(p["application.name"] || n.name || "?"), bin: String(p["application.process.binary"] || ""), pid: Number(p["application.process.id"] || 0) }
   }
-  Timer { interval: 2000; repeat: true; triggeredOnStart: true; running: pv.active; onTriggered: if (!proc.running) proc.running = true }
+  readonly property var micNow: {
+    var gs = Pipewire.linkGroups ? Pipewire.linkGroups.values : [], seen = {}, out = []
+    for (var i = 0; i < gs.length; i++) {
+      var g = gs[i], s = g.source, t = g.target
+      if (!s || !t) continue                                        // (link state reads -1 untracked; a link existing is enough)
+      if (!t.isStream || s.isStream || s.isSink) continue           // a real (or virtual) microphone → a recording stream
+      if (String(t.name || "").indexOf("soundhub_") === 0) continue
+      var a = appOf(t)
+      if (!seen[a.app]) { seen[a.app] = 1; out.push(a) }
+    }
+    return out
+  }
+  readonly property var portalCams: streams.filter(function(n) { return String((n.properties || {})["media.class"] || "") === "Stream/Input/Video" }).map(appOf)
+  property var deviceCams: []
+  readonly property var camNow: { var seen = {}, out = []; deviceCams.concat(portalCams).forEach(function(a) { if (!seen[a.app]) { seen[a.app] = 1; out.push(a) } }); return out }
+  onMicNowChanged: settle.restart()
+  onCamNowChanged: settle.restart()
+  // a short wait so a stream that blinks on and off doesn't flash the notch
+  Timer { id: settle; interval: 400; onTriggered: { pv.update("mic", pv.micNow); pv.update("cam", pv.camNow); pv.primed = true } }
+  Component.onCompleted: settle.restart()
+
+  // ---- cameras opened directly (/dev/video*): inotify says when, then one look
+  Process {
+    running: pv.active
+    command: ["bash", "-c", "ls /dev/video* >/dev/null 2>&1 || exec sleep infinity; exec inotifywait -m -q -e open,close /dev/video*"]
+    stdout: SplitParser { onRead: camLater.restart() }
+  }
+  Timer { id: camLater; interval: 300; onTriggered: if (!camProc.running) camProc.running = true }
+  Process {
+    id: camProc
+    command: [pv.bin, "cam"]
+    running: pv.active
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: { try { pv.deviceCams = JSON.parse(text).cam || [] } catch (e) {} } }
+  }
 
   // a readable name and icon from the app's desktop entry
   function entryOf(a) { return a.bin ? DesktopEntries.heuristicLookup(a.bin) : DesktopEntries.heuristicLookup(a.app) }

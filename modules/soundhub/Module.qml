@@ -9,13 +9,13 @@ import "../../vendor/soundhub" as SH
 import "../../vendor/soundhub/I18n.js" as HubI18n
 import "../../DeskStyle.js" as DS
 import "../../fonts"
+import "../soundparts"
 
 // SoundHub as a TheNotch dashboard. This object is the "host" the SoundHub
 // pages expect (the bar panel plays the same role): colours, strings,
 // settings, media, the shared cava capture, Focus sounds and the EQ backend.
-// The pages themselves are loaded from the osia.soundhub folder, so there is
-// one copy of the UI; settings live in TheNotch's own file (modules.soundhub),
-// seeded once from the bar widget's settings.
+// The pages come from vendor/soundhub; settings live in TheNotch's own file
+// (modules.soundhub).
 //   live   while a track plays: cover on one ear, spectrum on the other
 //   peek   the compact player card
 //   event  track changes
@@ -43,30 +43,6 @@ NotchModule {
   function persist(values) { if (notch) notch.modulePersist("soundhub", values) }
   readonly property string lang: notch ? notch.lang : "en"          // the shell's one language
   function t(key, args) { return HubI18n.t(lang, key, args) }
-
-  // First run: start from the bar widget's SoundHub settings.
-  FileView {
-    id: shellJson
-    path: Quickshell.env("HOME") + "/.config/omarchy/shell.json"
-    printErrors: false
-    blockLoading: true
-  }
-  readonly property bool canSeed: notch !== null && notch.settingsLoaded
-  onCanSeedChanged: seed()
-  function seed() {
-    if (!canSeed || (notch.settings.modules && notch.settings.modules.soundhub)) return
-    var entry = {}
-    try {
-      var cfg = JSON.parse(shellJson.text())
-      var secs = cfg.bar && cfg.bar.layout ? cfg.bar.layout : {}
-      for (var s in secs) for (var i = 0; i < secs[s].length; i++)
-        if (secs[s][i] && secs[s][i].id === "osia.soundhub") entry = secs[s][i]
-    } catch (e) {}
-    var v = {}
-    for (var k in entry) if (k !== "id") v[k] = entry[k]
-    v.seeded = true
-    persist(v)
-  }
 
   // ------------------------------------------------------ host: media
   property var media: SH.Media {
@@ -120,8 +96,49 @@ NotchModule {
   property bool wide: false
   readonly property bool opened: notch !== null && notch.expanded && notch.current === mod
 
-  // tabs: 0 now playing, 1 EQ, 2 focus, 3 microphone
-  pageWidth: tab === 0 ? (wide ? 840 : 400) : tab === 1 ? 500 : tab === 3 ? 520 : 440
+  // ------------------------------------------------------------- ambient
+  // Your own tracks on a loop in the background (Sound → Ambient): files or
+  // YouTube / YouTube Music links; they keep playing with the notch closed.
+  readonly property QtObject amb: QtObject {
+    readonly property var items: mod.opt("ambient", [])
+    property bool playing: false
+    readonly property real master: Number(mod.opt("ambientVolume", 0.8))
+    function save(list) { mod.persist({ ambient: list }) }
+    function toggle() { playing = !playing }
+    function setMaster(v) { mod.persist({ ambientVolume: v }) }
+    function update(id, v) { save(items.map(function(x) { return x.id === id ? Object.assign({}, x, v) : x })) }
+    function remove(id) { save(items.filter(function(x) { return x.id !== id })) }
+    function add(src, name) { var id = "a" + Date.now() + Math.floor(Math.random() * 1000); save(items.concat([{ id: id, src: src, name: name, volume: 0.6, on: true }])); return id }
+    function addLink(url) { var id = add(url, url.replace(/^https?:\/\/(www\.)?/, "").slice(0, 50)); titleProc.ids = [id]; titleProc.command = ["yt-dlp", "--no-playlist", "--print", "title"].concat(mod.ambProxy ? ["--proxy", mod.ambProxy] : []).concat([url]); titleProc.running = true }
+    function pickFiles() { if (!pickAudio.running) pickAudio.running = true }
+    function stateOf(id) { for (var i = 0; i < tracks.count; i++) { var t = tracks.itemAt(i); if (t && t.item.id === id) return { error: t.error } } return {} }
+  }
+  Repeater {
+    id: tracks
+    model: mod.amb.items
+    delegate: AmbientTrack { required property var modelData; item: modelData; master: mod.amb.master; playing: mod.amb.playing; proxy: mod.ambProxy }
+  }
+  // a local HTTP proxy (the tunnel app's), for links that don't resolve directly
+  property string ambProxy: ""
+  Process {
+    running: true
+    command: ["bash", "-c", "for p in 10809 2080 7890 8080; do curl -s -m 3 -o /dev/null -x http://127.0.0.1:$p http://www.gstatic.com/generate_204 && { echo http://127.0.0.1:$p; exit; }; done"]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: mod.ambProxy = String(text).trim() }
+  }
+  Process {
+    id: titleProc
+    property var ids: []
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: { var t = String(text).trim(); if (t && titleProc.ids.length) mod.amb.update(titleProc.ids[0], { name: t }) } }
+  }
+  Process {
+    id: pickAudio
+    command: ["omarchy-file-select", "--title", mod.ru ? "Треки для эмбиента" : "Ambient tracks", "--multiple", "--extensions", "mp3 flac ogg opus wav m4a aac"]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: String(text).trim().split("\n").filter(function(f) { return f }).forEach(function(f) { mod.amb.add(f, f.split("/").pop().replace(/\.[^.]+$/, "")) }) }
+  }
+
+  // tabs: 0 now playing, 1 EQ, 2 focus, 3 ambient, 4 microphone
+  function tabName(k) { return k === "tab.ambient" ? (ru ? "Эмбиент" : "Ambient") : t(k) }
+  pageWidth: tab === 0 ? (wide ? 840 : 400) : tab === 1 ? 500 : tab === 3 ? 560 : tab === 4 ? 520 : 440
   page: Component { SoundHubPage { host: mod } }
   // SoundHub's settings live in the settings window, not in a tab
   settingsPage: Component { SH.SettingsPage { host: mod; showDesk: false; showLang: false } }
