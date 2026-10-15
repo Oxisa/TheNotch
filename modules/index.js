@@ -20,6 +20,7 @@ var MODULES = [
   { id: "themes", file: "themes/Module.qml" },
   { id: "windows", file: "windows/Module.qml" },
   { id: "syncthing", file: "syncthing/Module.qml" },
+  { id: "nanokvm", file: "nanokvm/Module.qml" },
   { id: "notes", file: "notes/Module.qml" },
   { id: "shelf", file: "shelf/Module.qml" },
   { id: "workspaces", file: "workspaces/Module.qml" },
