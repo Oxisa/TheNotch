@@ -6,7 +6,6 @@ import Quickshell.Hyprland
 import Quickshell.Widgets
 import Quickshell.Io
 import qs.Commons
-import "modules/tray"
 
 // The notch itself, on one edge of one monitor. A strip-shaped layer window
 // along the edge; only the island takes input (mask), the rest is
@@ -240,7 +239,7 @@ PanelWindow {
       }
       function compFor(key, side) {
         if (key === "live") return side === "left" ? win.live.liveLeft : win.live.liveRight
-        return { workspace: wsComp, apps: appsComp, shelf: shelfComp, clock: clockComp, weather: weatherComp, layout: layoutComp, privacy: privacyComp, mic: micComp, tray: trayComp }[key] || null
+        return { workspace: wsComp, apps: appsComp, shelf: shelfComp, clock: clockComp, weather: weatherComp, layout: layoutComp, privacy: privacyComp, mic: micComp }[key] || null
       }
       readonly property var shelfMod: win.notch ? win.notch.moduleById("shelf") : null
 
@@ -355,16 +354,6 @@ PanelWindow {
           Text { anchors.verticalCenter: parent.verticalCenter; text: "\u{f0120}"; color: win.accent; font.family: win.ff; font.pixelSize: Style.font.body }
           Text { anchors.verticalCenter: parent.verticalCenter; text: ears.shelfMod ? ears.shelfMod.items.length : ""; color: win.fg; font.family: win.ff; font.pixelSize: Style.font.caption; font.bold: true }
           TapHandler { onTapped: win.notch.openModule("shelf") }
-        }
-      }
-      Component {
-        id: trayComp
-        TrayIcons {
-          mod: win.notch ? win.notch.moduleById("tray") : null
-          readonly property bool shown: !!(mod && mod.active) && list.length > 0
-          vertical: win.vertical; max: 4
-          fg: win.fg; ff: win.ff
-          onMore: win.notch.openModule("center")
         }
       }
       Component {
