@@ -4,8 +4,8 @@ import Quickshell.Io
 import qs.Commons
 import "../.."
 
-// Lock screen: which lock plugin draws it — Omarchy's own, Lock Designs
-// (SmoothPixels, 66 designs) or Hackery Lock (the4rchangel). Installs one
+// Lock screen: which lock plugin draws it — Omarchy's own or Lock Designs
+// (SmoothPixels' own designs only; bin/lockctl trims its picker). Installs it
 // from git when asked, keeps only one on, previews without locking.
 NotchModule {
   id: lk
@@ -13,7 +13,7 @@ NotchModule {
   function t(a, b) { return ru ? a : b }
   title: t("Экран блокировки", "Lock screen")
   icon: "\u{f033e}"
-  description: t("Стандартный, Lock Designs или Hackery Lock", "Standard, Lock Designs or Hackery Lock")
+  description: t("Стандартный или Lock Designs", "Standard or Lock Designs")
   inRail: false
   core: true
   settingsSection: "personal"

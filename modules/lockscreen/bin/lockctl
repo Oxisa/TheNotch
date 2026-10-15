@@ -1,17 +1,31 @@
 #!/usr/bin/env bash
 # Lock screen for TheNotch: which lock plugin draws it.
-#   lockctl state        the three choices: installed / enabled
+#   lockctl state        the two choices: installed / enabled
 #   lockctl use ID       make ID the lock screen (only one can be on)
 #   lockctl install ID   add it from git, then use it
 #   lockctl preview      show the current lock screen without locking
 #   lockctl explore      Lock Designs' design picker
 set -uo pipefail
-ids=(omarchy.lock io.github.smoothpixels.lock-designs io.github.the4rchangel.hackery-lock)
-declare -A url=([io.github.smoothpixels.lock-designs]=https://github.com/SmoothPixels/lock-designs.git
-                [io.github.the4rchangel.hackery-lock]=https://github.com/the4rchangel/omarchy-hackery-lock.git)
-declare -A img=([io.github.smoothpixels.lock-designs]=12-smoothpixels-lock-designs
-                [io.github.the4rchangel.hackery-lock]=12-the4rchangel-omarchy-hackery-lock)
+ids=(omarchy.lock io.github.smoothpixels.lock-designs)
+declare -A url=([io.github.smoothpixels.lock-designs]=https://github.com/SmoothPixels/lock-designs.git)
+declare -A img=([io.github.smoothpixels.lock-designs]=12-smoothpixels-lock-designs)
 cache="${XDG_CACHE_HOME:-$HOME/.cache}/thenotch/lock"
+# Lock Designs' picker shows only SmoothPixels' own designs (labelled
+# "original"), not the qylock ports and wallsflow videos. A local edit of its
+# Picker.qml, so it is applied again after every install and on each state
+# check (an update of the plugin brings the full picker back until then).
+originals_only() {
+  local f="$HOME/.config/omarchy/plugins/io.github.smoothpixels.lock-designs/Picker.qml"
+  [[ -f $f ]] || return 0
+  grep -q 'TheNotch: originals only' "$f" && return 0
+  sed -i \
+    -e 's|^\(\s*\)if (filter === "original" && (d.thirdParty \|\| !d.shipped)) continue$|\1if (d.thirdParty \|\| !d.shipped) continue  // TheNotch: originals only|' \
+    -e '/^\s*{ id: "original", label: "Originals" },$/d' \
+    -e '/^\s*{ id: "third", label: "Third party" },$/d' \
+    -e '/^\s*{ id: "video", label: "Video" },$/d' \
+    -e '/^\s*{ id: "missing", label: "Not downloaded" }$/d' \
+    -e 's|^\(\s*\){ id: "all", label: "All" },$|\1{ id: "all", label: "Originals" }|' "$f"
+}
 use() {
   omarchy plugin enable "$1" >/dev/null 2>&1 || return 1
   # every other lock plugin off: the stock one and its clones
@@ -22,6 +36,7 @@ use() {
 }
 case "${1:-state}" in
   state)
+    originals_only
     mkdir -p "$cache"
     list=$(omarchy plugin list --json 2>/dev/null)
     for id in "${ids[@]}"; do
@@ -36,7 +51,8 @@ case "${1:-state}" in
   install)
     u=${url[$2]:-}; [[ -n $u ]] || { echo '{"ok":false,"error":"unknown"}'; exit 1; }
     omarchy plugin add "$u" --yes >/dev/null 2>&1 || { echo '{"ok":false,"error":"could not download"}'; exit 1; }
+    originals_only
     use "$2" ;;
   preview) omarchy-shell lock preview >/dev/null 2>&1; echo '{"ok":true}' ;;
-  explore) omarchy-shell lock explore >/dev/null 2>&1; echo '{"ok":true}' ;;
+  explore) originals_only; omarchy-shell lock explore >/dev/null 2>&1; echo '{"ok":true}' ;;
 esac

@@ -4,7 +4,7 @@ import qs.Commons
 import "../../vendor/soundhub" as SH
 import "../../fonts"
 
-// Settings → Personalisation → Lock screen: three cards; the one in use is
+// Settings → Personalisation → Lock screen: two cards; the one in use is
 // ringed. Switching restarts the shell (the lock handler swaps then).
 Column {
   id: page
@@ -17,8 +17,7 @@ Column {
   function t(a, b) { return mod ? mod.t(a, b) : b }
   readonly property var info: ({
     "omarchy.lock": { name: page.t("Стандартный", "Standard"), what: page.t("Экран блокировки Omarchy в цветах темы", "Omarchy's lock screen in the theme's colours") },
-    "io.github.smoothpixels.lock-designs": { name: "Lock Designs", what: page.t("66 дизайнов на выбор, есть видео-фоны · SmoothPixels", "66 designs to pick from, some with video · SmoothPixels") },
-    "io.github.the4rchangel.hackery-lock": { name: "Hackery Lock", what: page.t("Терминал: матрица, лог загрузки, приглашение shell · the4rchangel", "A terminal: matrix rain, boot log, a shell prompt · the4rchangel") }
+    "io.github.smoothpixels.lock-designs": { name: "Lock Designs", what: page.t("21 дизайн SmoothPixels, следуют цветам темы", "21 SmoothPixels designs that follow the theme's colours") }
   })
   readonly property bool anyOn: mod ? mod.locks.some(function(l) { return l.enabled }) : false
 
@@ -32,7 +31,7 @@ Column {
         required property var modelData
         readonly property bool inUse: modelData.enabled
         readonly property bool working: page.mod.busy === modelData.id
-        width: (page.width - Style.space(20)) / 3
+        width: (page.width - Style.space(10)) / 2
         height: col.implicitHeight + Style.space(16)
         radius: SH.HubStyle.radius + Style.space(2)
         color: SH.HubStyle.tint(page.fg, 0.05)

@@ -91,7 +91,7 @@ explain() {
     · ~/.config/omarchy/backgrounds/thenotch-videos/ (links to video wallpapers you set)
     · ~/Documents/Notes (or Заметки) — a Markdown copy of each note (switch off in Notes)
   Optional plugins it can install for you from Settings
-    · Lock Designs, Hackery Lock (lock screens)
+    · Lock Designs (lock screen)
 EOF
 }
 
