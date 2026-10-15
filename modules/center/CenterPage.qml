@@ -271,6 +271,8 @@ Row {
     var ms = page.mod && page.mod.notch ? page.mod.notch.iconModules : []
     for (var i = 0; i < ms.length; i++) out.push({ id: "m:" + ms[i].moduleId, glyph: ms[i].icon, label: ms[i].title, on: false })
     out.push({ id: "rec", glyph: "\u{f044b}", label: page.t("Запись экрана", "Recording"), on: !!page.sys.rec })
+    // the desktop widgets' layout editor (Settings → Widgets → Arrange), one click away
+    out.push({ id: "widgets", glyph: "\u{f072c}", label: page.t("Виджеты", "Widgets"), on: !!(page.mod && page.mod.notch && page.mod.notch.editingLayout) })
     return out
   }
 
@@ -508,6 +510,7 @@ Row {
           if (id === "timer") page.timerOpen = !page.timerOpen
           else if (id === "rec") page.mod.toggle("rec")
           else if (id === "m:screenshot") page.mod.toggle("shot")
+          else if (id === "widgets") page.mod.notch.editLayout(true)
           else page.mod.notch.openModule(id.slice(2))
         }
       }

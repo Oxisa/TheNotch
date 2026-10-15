@@ -42,6 +42,8 @@ var MODULES = [
   { id: "mic", file: "soundparts/Mic.qml" },
   { id: "eq", file: "soundparts/Eq.qml" },
   { id: "clock", file: "clock/Module.qml" },
+  { id: "gallery", file: "gallery/Module.qml" },
+  { id: "books", file: "books/Module.qml" },
   { id: "settings", file: "settings/Module.qml" },
   { id: "modules", file: "modules/Module.qml" },
   { id: "widgets", file: "widgets/Module.qml" },

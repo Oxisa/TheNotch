@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Gallery for TheNotch: the files the desktop widget cycles through.
+#   galleryctl list [--flat] DIR...   JSON {ok, files: [{path, video, date}]}, sorted by path;
+#                                     subfolders too unless --flat
+#   galleryctl thumb FILE             a video's still frame (cached JPEG); prints its path
+#   galleryctl open FILE              shows FILE selected in the file manager and opens it
+#   galleryctl folders                a folder picker (zenity); prints the chosen folders, one per line
+set -uo pipefail
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/thenotch/gallery"
+images='jpg|jpeg|png|webp|gif|bmp|tif|tiff'   # what Qt here can decode (no HEIC/AVIF/JXL)
+videos='mp4|webm|mkv|mov|m4v|avi'
+case "${1:-}" in
+  list)
+    shift
+    depth=()
+    [[ ${1:-} == --flat ]] && { depth=(-maxdepth 1); shift; }
+    dirs=()
+    for d in "$@"; do d="${d/#\~/$HOME}"; [[ -d $d ]] && dirs+=("$d"); done
+    if ((${#dirs[@]} == 0)); then echo '{"ok":true,"files":[]}'; exit 0; fi
+    # each file as "path<TAB>birth<TAB>mtime"; date = when it was made (birth
+    # time where the filesystem keeps it, else the last change)
+    find -L "${dirs[@]}" "${depth[@]}" -type f -regextype posix-extended \
+      -iregex ".*\.($images|$videos)" -not -path '*/.*' -printf '%p\t%B@\t%T@\0' 2>/dev/null |
+      sort -zu | head -zn 20000 |
+      jq -Rsc --arg v "\\.($videos)$" '{ok: true, files: (split("\u0000")[:-1] | map(split("\t") as $f |
+        {path: $f[0], video: ($f[0] | test($v; "i")),
+         date: ((($f[1] // "0") | tonumber? // 0) as $b | if $b > 0 then $b else (($f[2] // "0") | tonumber? // 0) end | floor)}))}'
+    ;;
+  thumb)
+    f="$2"; mkdir -p "$cache"
+    out="$cache/$(printf '%s' "$f" | md5sum | cut -c1-32).jpg"
+    [[ -s $out ]] || ffmpegthumbnailer -i "$f" -o "$out" -s 640 -q 8 >/dev/null 2>&1 \
+      || ffmpeg -v quiet -y -ss 1 -i "$f" -frames:v 1 -vf scale=640:-2 "$out" 2>/dev/null
+    [[ -s $out ]] && printf '%s\n' "$out"
+    ;;
+  open)
+    f="$2"
+    uri="file://$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$f")"
+    gdbus call --session --dest org.freedesktop.FileManager1 --object-path /org/freedesktop/FileManager1 \
+      --method org.freedesktop.FileManager1.ShowItems "['$uri']" "" >/dev/null 2>&1 \
+      || setsid xdg-open "$(dirname "$f")" >/dev/null 2>&1 &
+    setsid xdg-open "$f" >/dev/null 2>&1 &
+    ;;
+  folders)
+    zenity --file-selection --directory --multiple --separator=$'\n' --title="Gallery" 2>/dev/null
+    ;;
+  *) echo "usage: galleryctl list|thumb|open|folders" >&2; exit 2 ;;
+esac
