@@ -6,6 +6,7 @@ import Quickshell.Hyprland
 import Quickshell.Widgets
 import Quickshell.Io
 import qs.Commons
+import "modules/tray"
 
 // The notch itself, on one edge of one monitor. A strip-shaped layer window
 // along the edge; only the island takes input (mask), the rest is
@@ -141,7 +142,7 @@ PanelWindow {
 
     // The island as ONE shape with its concave corners (top / bottom edge):
     // separate pieces left a hairline seam at fractional scales, and it
-    // flickered while the width animated. Side edges keep a plain rectangle.
+    // flickered while the width animated.
     readonly property real rad: win.radius
     property real r: rad
     Behavior on r { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
@@ -168,14 +169,27 @@ PanelWindow {
         PathLine { x: -island.f; y: 0 }
       }
     }
-    Rectangle {
+    // the same shape turned on its side: drawn for the left edge, mirrored
+    // for the right one
+    Shape {
+      id: sideShape
       visible: win.vertical
       anchors.fill: parent
-      color: win.fill
-      topLeftRadius: win.edge === "left" ? 0 : island.r
-      bottomLeftRadius: win.edge === "left" ? 0 : island.r
-      topRightRadius: win.edge === "right" ? 0 : island.r
-      bottomRightRadius: win.edge === "right" ? 0 : island.r
+      preferredRendererType: Shape.CurveRenderer
+      transform: Scale { origin.x: sideShape.width / 2; xScale: win.edge === "right" ? -1 : 1 }
+      ShapePath {
+        fillColor: win.fill
+        strokeWidth: -1
+        startX: 0; startY: -island.f
+        PathArc { x: island.f; y: 0; radiusX: island.f; radiusY: island.f; direction: PathArc.Counterclockwise }
+        PathLine { x: sideShape.width - island.cr; y: 0 }
+        PathArc { x: sideShape.width; y: island.cr; radiusX: island.cr; radiusY: island.cr; direction: PathArc.Clockwise }
+        PathLine { x: sideShape.width; y: sideShape.height - island.cr }
+        PathArc { x: sideShape.width - island.cr; y: sideShape.height; radiusX: island.cr; radiusY: island.cr; direction: PathArc.Clockwise }
+        PathLine { x: island.f; y: sideShape.height }
+        PathArc { x: 0; y: sideShape.height + island.f; radiusX: island.f; radiusY: island.f; direction: PathArc.Counterclockwise }
+        PathLine { x: 0; y: -island.f }
+      }
     }
 
     // click opens/closes; controls inside take their own clicks first;
@@ -226,15 +240,17 @@ PanelWindow {
       }
       function compFor(key, side) {
         if (key === "live") return side === "left" ? win.live.liveLeft : win.live.liveRight
-        return { workspace: wsComp, apps: appsComp, shelf: shelfComp, clock: clockComp, weather: weatherComp, layout: layoutComp, privacy: privacyComp, mic: micComp }[key] || null
+        return { workspace: wsComp, apps: appsComp, shelf: shelfComp, clock: clockComp, weather: weatherComp, layout: layoutComp, privacy: privacyComp, mic: micComp, tray: trayComp }[key] || null
       }
       readonly property var shelfMod: win.notch ? win.notch.moduleById("shelf") : null
 
       component Side: Grid {
         id: side
         property string which: "left"
-        rows: win.vertical ? 99 : 1
-        columns: win.vertical ? 1 : 99
+        // only one of rows/columns: with both set, Grid adds spacing for every
+        // empty row too, and a vertical side grew into a strip down the screen
+        rows: win.vertical ? -1 : 1
+        columns: win.vertical ? 1 : -1
         spacing: Style.space(8)
         horizontalItemAlignment: Grid.AlignHCenter
         verticalItemAlignment: Grid.AlignVCenter
@@ -339,6 +355,16 @@ PanelWindow {
           Text { anchors.verticalCenter: parent.verticalCenter; text: "\u{f0120}"; color: win.accent; font.family: win.ff; font.pixelSize: Style.font.body }
           Text { anchors.verticalCenter: parent.verticalCenter; text: ears.shelfMod ? ears.shelfMod.items.length : ""; color: win.fg; font.family: win.ff; font.pixelSize: Style.font.caption; font.bold: true }
           TapHandler { onTapped: win.notch.openModule("shelf") }
+        }
+      }
+      Component {
+        id: trayComp
+        TrayIcons {
+          mod: win.notch ? win.notch.moduleById("tray") : null
+          readonly property bool shown: !!(mod && mod.active) && list.length > 0
+          vertical: win.vertical; max: 4
+          fg: win.fg; ff: win.ff
+          onMore: win.notch.openModule("center")
         }
       }
       Component {
